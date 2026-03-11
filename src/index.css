@@ -1,4 +1,4 @@
-﻿@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -98,4 +98,47 @@ select {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* Swiper Carousel Styles */
+.trending-swiper .swiper-pagination-bullet {
+  background: #667eea;
+  opacity: 0.4;
+  width: 8px;
+  height: 8px;
+}
+
+.trending-swiper .swiper-pagination-bullet-active {
+  opacity: 1;
+  width: 24px;
+  border-radius: 4px;
+}
+
+.trending-swiper .swiper-button-next,
+.trending-swiper .swiper-button-prev {
+  color: #667eea;
+  background: rgba(255, 255, 255, 0.9);
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.trending-swiper .swiper-button-next::after,
+.trending-swiper .swiper-button-prev::after {
+  font-size: 14px;
+  font-weight: bold;
+}
+
+.dark .trending-swiper .swiper-button-next,
+.dark .trending-swiper .swiper-button-prev {
+  background: rgba(30, 41, 59, 0.9);
+}
+
+/* Line clamp utility */
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
