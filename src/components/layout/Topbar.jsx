@@ -8,7 +8,17 @@ import TeamSelector from './TeamSelector';
 import CreateTeamModal from '../common/CreateTeamModal';
 
 function NotificationPanel({ isOpen, onClose }) {
-    const { notifications, markNotificationRead, markAllNotificationsRead, deleteNotification, getUnreadCount } = useStore();
+    const { notifications } = useStore();
+    const setNotifications = (next) => useStore.setState({ notifications: next });
+    const markNotificationRead = (id) => {
+        setNotifications(notifications.map(n => n.id === id ? { ...n, read: true } : n));
+    };
+    const markAllNotificationsRead = () => {
+        setNotifications(notifications.map(n => ({ ...n, read: true })));
+    };
+    const deleteNotification = (id) => {
+        setNotifications(notifications.filter(n => n.id !== id));
+    };
     const panelRef = useRef(null);
 
     useEffect(() => {
@@ -48,9 +58,9 @@ function NotificationPanel({ isOpen, onClose }) {
                     <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-dark-border">
                         <div className="flex items-center space-x-2">
                             <h3 className="text-lg font-bold text-gray-900 dark:text-white">Notifications</h3>
-                            {getUnreadCount() > 0 && (
+                            {notifications?.filter(n => !n.read).length > 0 && (
                                 <span className="px-2 py-0.5 text-xs font-bold text-white bg-danger-500 rounded-full">
-                                    {getUnreadCount()}
+                                    {notifications.filter(n => !n.read).length}
                                 </span>
                             )}
                         </div>
@@ -64,7 +74,7 @@ function NotificationPanel({ isOpen, onClose }) {
                     </div>
 
                     <div className="max-h-96 overflow-y-auto">
-                        {notifications.length === 0 ? (
+                        {(!notifications || notifications.length === 0) ? (
                             <div className="flex flex-col items-center justify-center py-12 text-gray-500">
                                 <Bell className="w-12 h-12 mb-3 opacity-30" />
                                 <p className="text-sm font-medium">No notifications yet</p>
@@ -124,7 +134,7 @@ function NotificationPanel({ isOpen, onClose }) {
 
 function ProfileDropdown({ isOpen, onClose }) {
     const navigate = useNavigate();
-    const { settings } = useStore();
+    const { settings, user, logout } = useStore();
     const dropdownRef = useRef(null);
 
     useEffect(() => {
@@ -157,13 +167,13 @@ function ProfileDropdown({ isOpen, onClose }) {
                     <div className="p-4 border-b border-gray-200 dark:border-dark-border">
                         <div className="flex items-center space-x-3">
                             <div className="w-12 h-12 bg-gradient-primary rounded-full flex items-center justify-center text-white font-bold text-lg">
-                                {settings.profile.avatar}
+                                {(user?.name || settings.profile.name).split(' ').map(w => w[0]).join('').toUpperCase().slice(0,2)}
                             </div>
                             <div>
-                                <p className="text-sm font-semibold text-gray-900 dark:text-white">{settings.profile.name}</p>
-                                <p className="text-xs text-gray-500 dark:text-gray-400">{settings.profile.email}</p>
+                                <p className="text-sm font-semibold text-gray-900 dark:text-white">{user?.name || settings.profile.name}</p>
+                                <p className="text-xs text-gray-500 dark:text-gray-400">{user?.email || settings.profile.email}</p>
                                 <span className="inline-block mt-1 px-2 py-0.5 text-xs font-medium bg-primary-100 text-primary-700 rounded-full">
-                                    {settings.profile.role}
+                                    {user?.role || settings.profile.role}
                                 </span>
                             </div>
                         </div>
@@ -184,7 +194,7 @@ function ProfileDropdown({ isOpen, onClose }) {
 
                     <div className="p-2 border-t border-gray-200 dark:border-dark-border">
                         <button
-                            onClick={() => { navigate('/login'); onClose(); }}
+                            onClick={() => { logout(); navigate('/login'); onClose(); }}
                             className="flex items-center space-x-3 w-full px-3 py-2.5 rounded-lg text-danger-600 hover:bg-danger-50 dark:hover:bg-danger-900/20 transition-colors text-left"
                         >
                             <LogOut className="w-4 h-4" />
@@ -198,7 +208,7 @@ function ProfileDropdown({ isOpen, onClose }) {
 }
 
 export default function Topbar() {
-    const { toggleSidebar, darkMode, toggleDarkMode, getUnreadCount } = useStore();
+    const { toggleSidebar, darkMode, toggleDarkMode, notifications, user } = useStore();
     const [currentTime, setCurrentTime] = useState(new Date());
     const [searchFocused, setSearchFocused] = useState(false);
     const [notifOpen, setNotifOpen] = useState(false);
@@ -290,11 +300,11 @@ export default function Topbar() {
                             className="flex items-center space-x-3 cursor-pointer group"
                         >
                             <div className="hidden md:block text-right">
-                                <div className="text-sm font-medium text-gray-900 dark:text-white">John Doe</div>
-                                <div className="text-xs text-gray-500 dark:text-gray-400">Developer</div>
+                                <div className="text-sm font-medium text-gray-900 dark:text-white">{user?.name || 'John Doe'}</div>
+                                <div className="text-xs text-gray-500 dark:text-gray-400">{user?.role || 'Developer'}</div>
                             </div>
                             <div className="w-10 h-10 bg-gradient-primary rounded-full flex items-center justify-center text-white font-semibold ring-2 ring-transparent group-hover:ring-primary-300 transition-all">
-                                JD
+                                {(user?.name || 'JD').split(' ').map(w => w[0]).join('').toUpperCase().slice(0,2)}
                             </div>
                             <ChevronDown className={cn('w-4 h-4 text-gray-400 transition-transform hidden md:block', profileOpen && 'rotate-180')} />
                         </button>

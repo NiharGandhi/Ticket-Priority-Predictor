@@ -8,8 +8,13 @@ import QuickActions from '../components/dashboard/QuickActions';
 import { useStore } from '../store/useStore';
 
 export default function Dashboard() {
-    const { getTeamTickets, currentTeam } = useStore();
+    const { getTeamTickets, currentTeam, fetchTickets, loading } = useStore();
     const teamTickets = getTeamTickets();
+
+    // refresh tickets when team changes
+    useEffect(() => {
+        fetchTickets({ team: currentTeam ? currentTeam.id : undefined });
+    }, [currentTeam?.id]);
 
     const totalTickets = teamTickets.length;
     const criticalTickets = teamTickets.filter((t) => t.priority === 'Critical').length;

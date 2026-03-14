@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, Filter, LayoutGrid, List, Plus, Columns3, ChevronLeft, ChevronRight, Download, Trash2, RefreshCw, CheckSquare, Square, X } from 'lucide-react';
 import Card from '../components/common/Card';
@@ -13,8 +13,22 @@ const ITEMS_PER_PAGE = 12;
 
 export default function TicketList() {
     const navigate = useNavigate();
-    const { getTeamTickets } = useStore();
+    const { getTeamTickets, fetchTickets, loading, currentTeam } = useStore();
     const teamTickets = getTeamTickets();
+
+    useEffect(() => {
+        // fetch tickets when currentTeam or filters change
+        const params = {
+            team: currentTeam?.id || currentTeam?._id || undefined,
+            search: searchQuery || undefined,
+            priority: selectedPriority.length ? selectedPriority.join(',') : undefined,
+            status: selectedStatus.length ? selectedStatus.join(',') : undefined,
+            page: currentPage,
+            limit: ITEMS_PER_PAGE,
+        };
+        fetchTickets(params);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [currentTeam, searchQuery, selectedPriority, selectedStatus, currentPage]);
     const [viewMode, setViewMode] = useState('grid');
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedPriority, setSelectedPriority] = useState([]);

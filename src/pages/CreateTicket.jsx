@@ -24,7 +24,7 @@ const similarTicketsData = [
 
 export default function CreateTicket() {
     const navigate = useNavigate();
-    const { addTicket } = useStore();
+    const { createTicket, currentTeam } = useStore();
     const [files, setFiles] = useState([]);
     const [isDragging, setIsDragging] = useState(false);
     const [submitting, setSubmitting] = useState(false);
@@ -84,35 +84,24 @@ export default function CreateTicket() {
 
     const onSubmit = async (data) => {
         setSubmitting(true);
-        await new Promise(r => setTimeout(r, 1500));
-
-        const newTicket = {
-            id: String(2000 + Math.floor(Math.random() * 1000)),
-            title: data.title,
-            description: data.description,
-            priority: aiPrediction?.priority || 'Medium',
-            status: 'Open',
-            category: data.category || aiPrediction?.category || 'Bug',
-            assignee: { id: 1, name: 'John Doe', email: 'john@example.com', avatar: 'JD' },
-            reporter: { id: 1, name: 'John Doe', email: 'john@example.com', avatar: 'JD' },
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-            dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-            aiConfidence: aiPrediction?.confidence || 85,
-            estimatedResolutionTime: aiPrediction?.estimatedTime || '4-8 hours',
-            tags: data.tags ? data.tags.split(',').map(t => t.trim()) : [],
-            comments: 0,
-            attachments: files.length,
-            sentiment: 'Neutral',
-            customerTier: data.customerTier || 'Professional',
-            affectedUsers: 1,
-            similarTickets: [],
-        };
-
-        addTicket(newTicket);
-        setSubmitting(false);
-        toast.success('🎉 Ticket created successfully!', { duration: 4000, style: { fontWeight: 600 } });
-        navigate('/tickets');
+        try {
+            const payload = {
+                title: data.title,
+                description: data.description,
+                category: data.category || aiPrediction?.category,
+                customerTier: data.customerTier,
+                tags: data.tags ? data.tags.split(',').map(t => t.trim()) : [],
+                team: currentTeam?.id || undefined,
+            };
+            await createTicket(payload);
+            toast.success('🎉 Ticket created successfully!', { duration: 4000, style: { fontWeight: 600 } });
+            navigate('/tickets');
+        } catch (err) {
+            console.error(err);
+            toast.error('Failed to create ticket.');
+        } finally {
+            setSubmitting(false);
+        }
     };
 
     const getPriorityBg = (p) => {

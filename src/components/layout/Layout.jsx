@@ -1,4 +1,5 @@
 import { Outlet } from 'react-router-dom';
+import { useEffect } from 'react';
 import Sidebar from './Sidebar';
 import Topbar from './Topbar';
 import Breadcrumbs from '../common/Breadcrumbs';
@@ -8,8 +9,17 @@ import { cn } from '../../lib/utils';
 import useTeamFilter from '../../hooks/useTeamFilter';
 
 export default function Layout() {
-    const { sidebarCollapsed } = useStore();
+    const { sidebarCollapsed, token, loadMe, fetchTeams, fetchUsers } = useStore();
     useTeamFilter();
+
+    useEffect(() => {
+        // If there's a token in localStorage, validate and load the user
+        if (token) loadMe();
+        // Load teams and users for the app
+        fetchTeams();
+        fetchUsers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     return (
         <div className="min-h-screen bg-gray-50 dark:bg-dark-bg">

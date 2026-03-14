@@ -1,115 +1,167 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { mockTickets, mockNotifications, mockTeamMembers, mockTeams } from '../data/mockData';
+import { ticketsAPI, teamsAPI, usersAPI, authAPI } from '../services/api';
+import { setAuthToken } from '../services/api';
+import { mockTickets, mockTeams, mockUsers, mockNotifications } from '../data/mockData';
 
 export const useStore = create(
-  persist(
-    (set, get) => ({
-    // Dark mode
-    darkMode: false,
-    toggleDarkMode: () => set((state) => ({ darkMode: !state.darkMode })),
+    persist(
+        (set, get) => ({
+            // UI
+            darkMode: false,
+            toggleDarkMode: () => set((state) => ({ darkMode: !state.darkMode })),
+            sidebarCollapsed: false,
+            toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
 
-    // Sidebar
-    sidebarCollapsed: false,
-    toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
+            // Auth
+            token: typeof localStorage !== 'undefined' ? localStorage.getItem('token') : null,
+            user: null,
+            authLoading: false,
+            authError: null,
+            setAuth: (user, token) => {
+                if (token) setAuthToken(token);
+                set(() => ({ user, token }));
+            },
+            logout: () => {
+                setAuthToken(null);
+                set(() => ({ user: null, token: null }));
+            },
+            loadMe: async () => {
+                set({ authLoading: true });
+                try {
+                    const res = await authAPI.getMe();
+                    set({ user: res.data.data, authLoading: false });
+                } catch (err) {
+                    set({ user: null, token: null, authLoading: false });
+                    setAuthToken(null);
+                }
+            },
 
-    // Teams
-    teams: mockTeams,
-    currentTeam: mockTeams[0],
-    setCurrentTeam: (teamId) => set((state) => ({
-        currentTeam: state.teams.find(t => t.id === teamId) || state.teams[0]
-    })),
-    addTeam: (team) => set((state) => ({ teams: [...state.teams, team] })),
-    updateTeam: (teamId, updates) => set((state) => ({
-        teams: state.teams.map(t => t.id === teamId ? { ...t, ...updates } : t),
-        currentTeam: state.currentTeam?.id === teamId ? { ...state.currentTeam, ...updates } : state.currentTeam,
-    })),
-    removeTeam: (teamId) => set((state) => ({
-        teams: state.teams.filter(t => t.id !== teamId),
-        currentTeam: state.currentTeam?.id === teamId ? state.teams[0] : state.currentTeam,
-    })),
-    getTeamTickets: () => {
-        const { tickets, currentTeam } = get();
-        if (!currentTeam) return tickets;
-        return tickets.filter(t => t.teamId === currentTeam.id);
-    },
-    getTeamMembers: () => {
-        const { teamMembers, currentTeam } = get();
-        if (!currentTeam) return teamMembers;
-        return teamMembers.filter(m => currentTeam.members.includes(m.id));
-    },
+            // Data
+            tickets: [],
+            teams: [],
+            users: [],
+            teamMembers: [],
+            notifications: [],
+            loading: false,
+            error: null,
 
-    // Tickets
-    tickets: mockTickets,
-    addTicket: (ticket) => set((state) => ({ tickets: [ticket, ...state.tickets] })),
-    deleteTicket: (id) => set((state) => ({ tickets: state.tickets.filter(t => t.id !== id) })),
-    updateTicket: (id, updates) => set((state) => ({
-        tickets: state.tickets.map(t => t.id === id ? { ...t, ...updates } : t)
-    })),
+            // Current team
+            currentTeam: null,
+            setCurrentTeam: (teamId) => set((state) => ({ currentTeam: state.teams.find(t => t.id === teamId) || state.teams[0] || null })),
 
-    selectedTickets: [],
-    setSelectedTickets: (tickets) => set({ selectedTickets: tickets }),
+            // Fetchers
+            fetchTeams: async () => {
+                set({ loading: true });
+                try {
+                    const res = await teamsAPI.getAll();
+                    const teams = res.data.data.map(t => ({ ...t, id: t._id || t.id }));
+                    set({ teams, loading: false });
+                    if (!get().currentTeam && teams.length > 0) set({ currentTeam: teams[0] });
+                } catch (err) {
+                    console.error('fetchTeams error:', err);
+                    // fallback to mock data for local dev preview
+                    set({ teams: mockTeams, loading: false });
+                    if (!get().currentTeam && mockTeams.length > 0) set({ currentTeam: mockTeams[0] });
+                    set({ error: err.message || 'Failed to load teams, using mock data' });
+                }
+            },
 
-    filters: { priority: [], status: [], assignee: [], search: '' },
-    setFilters: (filters) => set((state) => ({
-        filters: { ...state.filters, ...filters }
-    })),
+            fetchUsers: async () => {
+                set({ loading: true });
+                try {
+                    const res = await usersAPI.getAll();
+                    const users = res.data.data.map(u => ({ ...u, id: u._id }));
+                    set({ users, loading: false });
+                } catch (err) {
+                    console.error('fetchUsers error:', err);
+                    set({ users: mockUsers, loading: false, error: err.message || 'Failed to load users, using mock data' });
+                }
+            },
 
-    viewMode: 'list',
-    setViewMode: (mode) => set({ viewMode: mode }),
+            fetchTickets: async (params = {}) => {
+                set({ loading: true });
+                try {
+                    const res = await ticketsAPI.getAll(params);
+                    const payload = res.data.data || res.data;
+                    const ticketsRaw = payload.tickets || payload;
+                    const tickets = ticketsRaw.map(t => ({
+                        id: t.ticketId || t._id,
+                        title: t.title,
+                        description: t.description,
+                        priority: t.priority,
+                        status: t.status,
+                        category: t.category,
+                        teamId: t.team?._id || t.team || null,
+                        assignee: t.assignee ? { id: t.assignee._id, name: t.assignee.name, email: t.assignee.email, avatar: (t.assignee.name || '').split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2) } : null,
+                        reporter: t.createdBy ? { id: t.createdBy._id, name: t.createdBy.name, email: t.createdBy.email } : null,
+                        createdAt: t.createdAt,
+                        updatedAt: t.updatedAt,
+                        dueDate: t.dueDate,
+                        aiConfidence: t.aiPredictions?.confidence || t.confidence || 0,
+                        estimatedResolutionTime: t.estimatedTime || t.estimatedResolutionTime,
+                        tags: t.tags || [],
+                        comments: t.comments ? t.comments.length : (t.commentsCount || 0),
+                        attachments: t.attachments ? t.attachments.length : (t.attachmentsCount || 0),
+                        sentiment: t.sentiment,
+                        customerTier: t.customerTier,
+                        affectedUsers: t.affectedUsers,
+                        similarTickets: t.similarTickets || [],
+                    }));
+                    set({ tickets, loading: false });
+                    return { tickets, meta: { totalPages: payload.totalPages, currentPage: payload.currentPage, total: payload.total } };
+                } catch (err) {
+                    console.error('fetchTickets error:', err);
+                    // fallback to mock tickets for dev preview
+                    set({ tickets: mockTickets, loading: false, error: err.message || 'Failed to load tickets, using mock data' });
+                    return { tickets: mockTickets, meta: { totalPages: 1, currentPage: 1, total: mockTickets.length } };
+                }
+            },
 
-    getFilteredTickets: () => {
-        const { tickets, filters } = get();
-        return tickets.filter(ticket => {
-            if (filters.search && !ticket.title.toLowerCase().includes(filters.search.toLowerCase())) return false;
-            if (filters.priority.length > 0 && !filters.priority.includes(ticket.priority)) return false;
-            if (filters.status.length > 0 && !filters.status.includes(ticket.status)) return false;
-            if (filters.assignee.length > 0 && !filters.assignee.includes(ticket.assignee.id)) return false;
-            return true;
-        });
-    },
+            createTicket: async (data) => {
+                set({ loading: true });
+                try {
+                    const res = await ticketsAPI.create(data);
+                    const t = res.data.data;
+                    const ticket = {
+                        id: t.ticketId || t._id,
+                        title: t.title,
+                        description: t.description,
+                        priority: t.priority,
+                        status: t.status,
+                        category: t.category,
+                        teamId: t.team?._id || t.team || null,
+                        assignee: t.assignee ? { id: t.assignee._id, name: t.assignee.name, email: t.assignee.email } : null,
+                        createdAt: t.createdAt,
+                        updatedAt: t.updatedAt,
+                        aiConfidence: t.aiPredictions?.confidence || t.confidence || 0,
+                    };
+                    set(state => ({ tickets: [ticket, ...state.tickets], loading: false }));
+                    return ticket;
+                } catch (err) { set({ error: err.message || 'Failed to create ticket', loading: false }); throw err; }
+            },
 
-    // Notifications
-    notifications: mockNotifications,
-    markNotificationRead: (id) => set((state) => ({
-        notifications: state.notifications.map(n => n.id === id ? { ...n, read: true } : n)
-    })),
-    markAllNotificationsRead: () => set((state) => ({
-        notifications: state.notifications.map(n => ({ ...n, read: true }))
-    })),
-    deleteNotification: (id) => set((state) => ({
-        notifications: state.notifications.filter(n => n.id !== id)
-    })),
-    getUnreadCount: () => get().notifications.filter(n => !n.read).length,
+            // Simple wrappers
+            addTicketLocal: (ticket) => set((state) => ({ tickets: [ticket, ...state.tickets] })),
+            updateTicketLocal: (id, updates) => set((state) => ({ tickets: state.tickets.map(t => t.id === id ? { ...t, ...updates } : t) })),
+            deleteTicketLocal: (id) => set((state) => ({ tickets: state.tickets.filter(t => t.id !== id) })),
 
-    // Team
-    teamMembers: mockTeamMembers,
-    addTeamMember: (member) => set((state) => ({ teamMembers: [...state.teamMembers, member] })),
-    updateTeamMember: (id, updates) => set((state) => ({
-        teamMembers: state.teamMembers.map(m => m.id === id ? { ...m, ...updates } : m)
-    })),
-    removeTeamMember: (id) => set((state) => ({
-        teamMembers: state.teamMembers.filter(m => m.id !== id)
-    })),
+            // Selectors
+            getTeamTickets: () => {
+                const { tickets, currentTeam } = get();
+                if (!currentTeam) return tickets;
+                return tickets.filter(t => String(t.teamId) === String(currentTeam.id));
+            },
+            getTeamMembers: () => {
+                const { users, currentTeam } = get();
+                if (!currentTeam) return users;
+                return users.filter(u => (u.team && String(u.team) === String(currentTeam.id)) || (currentTeam.members && currentTeam.members.find(m => String(m.user || m) === String(u.id))));
+            },
 
-    // Settings
-    settings: {
-        profile: { name: 'John Doe', email: 'john@example.com', role: 'Developer', avatar: 'JD' },
-        notifications: {
-            emailTicketCreated: true, emailTicketUpdated: true, emailTicketResolved: false,
-            pushTicketCreated: true, pushTicketUpdated: false, pushTicketResolved: true,
-            inAppAll: true,
-        },
-        system: { autoAssign: true, slaEnabled: true, slaCritical: 4, slaHigh: 8, slaMedium: 24, slaLow: 72 },
-        integrations: { slack: false, email: true, apiKeyGenerated: false },
-    },
-    updateSettings: (section, updates) => set((state) => ({
-        settings: { ...state.settings, [section]: { ...state.settings[section], ...updates } }
-    })),
-}),
-    {
-      name: 'ticket-app-storage',
-      partialize: (state) => ({ currentTeam: state.currentTeam }),
-    }
-  )
+        }),
+        {
+            name: 'ticket-app-storage',
+            partialize: (state) => ({ currentTeam: state.currentTeam, token: state.token }),
+        }
+    )
 );
