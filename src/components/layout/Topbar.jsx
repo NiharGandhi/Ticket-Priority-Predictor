@@ -1,15 +1,15 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Search, Bell, Menu, Moon, Sun, User, Settings, HelpCircle, LogOut, X, Check, CheckCheck, Inbox, AlertTriangle, MessageCircle, Shield, ChevronDown } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn, formatRelativeTime } from '../../lib/utils';
 import TeamSelector from './TeamSelector';
 import CreateTeamModal from '../common/CreateTeamModal';
+import { authAPI } from '../../services/api';
 
-function NotificationPanel({ isOpen, onClose }) {
-    const { notifications } = useStore();
-    const setNotifications = (next) => useStore.setState({ notifications: next });
+function NotificationPanel({ isOpen, onClose, notifications, setNotifications }) {
     const markNotificationRead = (id) => {
         setNotifications(notifications.map(n => n.id === id ? { ...n, read: true } : n));
     };
@@ -132,9 +132,8 @@ function NotificationPanel({ isOpen, onClose }) {
     );
 }
 
-function ProfileDropdown({ isOpen, onClose }) {
+function ProfileDropdown({ isOpen, onClose, user, onLogout }) {
     const navigate = useNavigate();
-    const { settings, user, logout } = useStore();
     const dropdownRef = useRef(null);
 
     useEffect(() => {
@@ -153,6 +152,10 @@ function ProfileDropdown({ isOpen, onClose }) {
         { icon: HelpCircle, label: 'Help & Support', action: () => onClose() },
     ];
 
+    const fallbackName = user?.name || 'Guest User';
+    const fallbackEmail = user?.email || 'guest@example.com';
+    const fallbackRole = user?.role || 'User';
+
     return (
         <AnimatePresence>
             {isOpen && (
@@ -167,13 +170,13 @@ function ProfileDropdown({ isOpen, onClose }) {
                     <div className="p-4 border-b border-gray-200 dark:border-dark-border">
                         <div className="flex items-center space-x-3">
                             <div className="w-12 h-12 bg-gradient-primary rounded-full flex items-center justify-center text-white font-bold text-lg">
-                                {(user?.name || settings.profile.name).split(' ').map(w => w[0]).join('').toUpperCase().slice(0,2)}
+                                {fallbackName.split(' ').map(w => w[0]).join('').toUpperCase().slice(0,2)}
                             </div>
                             <div>
-                                <p className="text-sm font-semibold text-gray-900 dark:text-white">{user?.name || settings.profile.name}</p>
-                                <p className="text-xs text-gray-500 dark:text-gray-400">{user?.email || settings.profile.email}</p>
-                                <span className="inline-block mt-1 px-2 py-0.5 text-xs font-medium bg-primary-100 text-primary-700 rounded-full">
-                                    {user?.role || settings.profile.role}
+                                <p className="text-sm font-semibold text-gray-900 dark:text-white">{fallbackName}</p>
+                                <p className="text-xs text-gray-500 dark:text-gray-400">{fallbackEmail}</p>
+                                <span className="inline-block mt-1 px-2 py-0.5 text-xs font-medium bg-primary-100 text-primary-700 rounded-full capitalize">
+                                    {fallbackRole}
                                 </span>
                             </div>
                         </div>
@@ -194,7 +197,7 @@ function ProfileDropdown({ isOpen, onClose }) {
 
                     <div className="p-2 border-t border-gray-200 dark:border-dark-border">
                         <button
-                            onClick={() => { logout(); navigate('/login'); onClose(); }}
+                            onClick={onLogout}
                             className="flex items-center space-x-3 w-full px-3 py-2.5 rounded-lg text-danger-600 hover:bg-danger-50 dark:hover:bg-danger-900/20 transition-colors text-left"
                         >
                             <LogOut className="w-4 h-4" />
@@ -208,12 +211,24 @@ function ProfileDropdown({ isOpen, onClose }) {
 }
 
 export default function Topbar() {
-    const { toggleSidebar, darkMode, toggleDarkMode, notifications, user } = useStore();
+    const navigate = useNavigate();
+    const queryClient = useQueryClient();
+    const { toggleSidebar, darkMode, toggleDarkMode } = useStore();
+    
+    // Fetch user mapping correctly matching ProtectedRoute format
+    const { data: user } = useQuery({
+        queryKey: ['me'],
+        queryFn: async () => { const res = await authAPI.getMe(); return res.data.data || res.data; }
+    });
+
     const [currentTime, setCurrentTime] = useState(new Date());
     const [searchFocused, setSearchFocused] = useState(false);
     const [notifOpen, setNotifOpen] = useState(false);
     const [profileOpen, setProfileOpen] = useState(false);
     const [createTeamOpen, setCreateTeamOpen] = useState(false);
+    const [notifications, setNotifications] = useState([]);
+    
+    const getUnreadCount = () => notifications.filter(n => !n.read).length;
 
     useEffect(() => {
         const timer = setInterval(() => setCurrentTime(new Date()), 60000);
@@ -227,6 +242,13 @@ export default function Topbar() {
 
     const formatTime = (date) => date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
     const formatDate = (date) => date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+
+    const handleLogout = () => {
+        localStorage.removeItem('token');
+        queryClient.clear();
+        setProfileOpen(false);
+        navigate('/login');
+    };
 
     return (
         <header className="h-16 bg-white dark:bg-dark-surface border-b border-gray-200 dark:border-dark-border sticky top-0 z-30">
@@ -291,7 +313,7 @@ export default function Topbar() {
                                 </span>
                             )}
                         </button>
-                        <NotificationPanel isOpen={notifOpen} onClose={() => setNotifOpen(false)} />
+                        <NotificationPanel isOpen={notifOpen} onClose={() => setNotifOpen(false)} notifications={notifications} setNotifications={setNotifications} />
                     </div>
 
                     <div className="relative">
@@ -300,15 +322,15 @@ export default function Topbar() {
                             className="flex items-center space-x-3 cursor-pointer group"
                         >
                             <div className="hidden md:block text-right">
-                                <div className="text-sm font-medium text-gray-900 dark:text-white">{user?.name || 'John Doe'}</div>
-                                <div className="text-xs text-gray-500 dark:text-gray-400">{user?.role || 'Developer'}</div>
+                                <div className="text-sm font-medium text-gray-900 dark:text-white">{user?.name || 'Guest User'}</div>
+                                <div className="text-xs text-gray-500 dark:text-gray-400 capitalize">{user?.role || 'User'}</div>
                             </div>
                             <div className="w-10 h-10 bg-gradient-primary rounded-full flex items-center justify-center text-white font-semibold ring-2 ring-transparent group-hover:ring-primary-300 transition-all">
-                                {(user?.name || 'JD').split(' ').map(w => w[0]).join('').toUpperCase().slice(0,2)}
+                                {(user?.name || 'GU').split(' ').map(w => w[0]).join('').toUpperCase().slice(0,2)}
                             </div>
                             <ChevronDown className={cn('w-4 h-4 text-gray-400 transition-transform hidden md:block', profileOpen && 'rotate-180')} />
                         </button>
-                        <ProfileDropdown isOpen={profileOpen} onClose={() => setProfileOpen(false)} />
+                        <ProfileDropdown isOpen={profileOpen} onClose={() => setProfileOpen(false)} user={user} onLogout={handleLogout} />
                     </div>
                 </div>
             </div>

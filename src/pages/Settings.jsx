@@ -1,9 +1,11 @@
-import { useState } from 'react';
-import { motion } from 'framer-motion';
+import { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { User, Bell, Cog, Link2, Palette, Save, Camera, Eye, EyeOff, Key, Mail, MessageSquare, Smartphone, Slack, Globe, Shield, Clock } from 'lucide-react';
 import Card from '../components/common/Card';
 import Button from '../components/common/Button';
 import { useStore } from '../store/useStore';
+import { authAPI, usersAPI } from '../services/api';
 import { cn } from '../lib/utils';
 import toast from 'react-hot-toast';
 
@@ -30,17 +32,58 @@ function Toggle({ enabled, onChange, label, description }) {
     );
 }
 
+const defaultSettings = {
+    notifications: { emailTicketCreated: true, emailTicketUpdated: true, emailTicketResolved: false, pushTicketCreated: true, pushTicketUpdated: false, pushTicketResolved: true, inAppAll: true },
+    system: { autoAssign: true, slaEnabled: true, slaCritical: 4, slaHigh: 8, slaMedium: 24, slaLow: 72 },
+    integrations: { slack: true, email: true, apiKeyGenerated: false }
+};
+
 export default function Settings() {
-    const { settings, updateSettings, darkMode, toggleDarkMode } = useStore();
+    const { darkMode, toggleDarkMode } = useStore();
+    const queryClient = useQueryClient();
+    
     const [activeTab, setActiveTab] = useState('profile');
     const [showPassword, setShowPassword] = useState(false);
-    const [profileForm, setProfileForm] = useState({ ...settings.profile, password: '', newPassword: '' });
+    
+    // Fallback settings for preferences not in DB
+    const [uiSettings, setUISettings] = useState(() => {
+        try {
+            const saved = localStorage.getItem('userSettings');
+            return saved ? JSON.parse(saved) : defaultSettings;
+        } catch { return defaultSettings; }
+    });
 
-    const handleSave = () => {
-        if (activeTab === 'profile') {
-            updateSettings('profile', { name: profileForm.name, email: profileForm.email, role: profileForm.role });
+    const updateSettings = (section, updates) => {
+        setUISettings(prev => {
+            const next = { ...prev, [section]: { ...prev[section], ...updates } };
+            localStorage.setItem('userSettings', JSON.stringify(next));
+            return next;
+        });
+    };
+
+    // User Profile Data Map
+    const { data: userRes, isLoading } = useQuery({ queryKey: ['me'], queryFn: authAPI.getMe });
+    const user = userRes?.data;
+    const [profileForm, setProfileForm] = useState({ name: '', email: '', role: '', avatar: '' });
+
+    useEffect(() => {
+        if (user) {
+            setProfileForm({ name: user.name, email: user.email, role: user.role || 'Agent', avatar: user.avatar || '' });
         }
-        toast.success('Settings saved successfully!');
+    }, [user]);
+
+    const updateUserMutation = useMutation({
+        mutationFn: (data) => usersAPI.update(user?._id, data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['me'] });
+            toast.success('Profile updated successfully!');
+        },
+        onError: (err) => toast.error(err.response?.data?.message || 'Failed to update profile')
+    });
+
+    const handleSaveProfile = () => {
+        if (!user) return;
+        updateUserMutation.mutate({ name: profileForm.name, email: profileForm.email });
     };
 
     return (
@@ -74,15 +117,15 @@ export default function Settings() {
                                     <div className="flex items-center space-x-6 mb-8">
                                         <div className="relative">
                                             <div className="w-20 h-20 bg-gradient-primary rounded-full flex items-center justify-center text-white font-bold text-2xl">
-                                                {profileForm.avatar || 'JD'}
+                                                {profileForm.avatar || (profileForm.name ? profileForm.name[0]?.toUpperCase() : 'U')}
                                             </div>
                                             <button className="absolute -bottom-1 -right-1 w-8 h-8 bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border rounded-full flex items-center justify-center shadow-md hover:shadow-lg transition-shadow">
-                                                <Camera className="w-4 h-4 text-gray-600" />
+                                                <Camera className="w-4 h-4 text-gray-600 dark:text-gray-300" />
                                             </button>
                                         </div>
                                         <div>
                                             <p className="text-lg font-semibold text-gray-900 dark:text-white">{profileForm.name}</p>
-                                            <p className="text-sm text-gray-500">{profileForm.role}</p>
+                                            <p className="text-sm text-gray-500 capitalize">{profileForm.role}</p>
                                         </div>
                                     </div>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
@@ -114,7 +157,7 @@ export default function Settings() {
                                         </div>
                                     </div>
                                     <div className="flex justify-end pt-4 border-t border-gray-200 dark:border-dark-border">
-                                        <Button icon={Save} onClick={handleSave}>Save Changes</Button>
+                                        <Button icon={updateUserMutation.isPending ? undefined : Save} loading={updateUserMutation.isPending} onClick={handleSaveProfile}>Save Changes</Button>
                                     </div>
                                 </Card>
                             )}
@@ -129,11 +172,11 @@ export default function Settings() {
                                                 <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Email Notifications</h3>
                                             </div>
                                             <div className="bg-gray-50 dark:bg-dark-border/30 rounded-xl px-4 divide-y divide-gray-200 dark:divide-dark-border">
-                                                <Toggle label="Ticket Created" description="When a new ticket is assigned to you" enabled={settings.notifications.emailTicketCreated}
+                                                <Toggle label="Ticket Created" description="When a new ticket is assigned to you" enabled={uiSettings.notifications.emailTicketCreated}
                                                     onChange={(v) => updateSettings('notifications', { emailTicketCreated: v })} />
-                                                <Toggle label="Ticket Updated" description="When a ticket you're watching is updated" enabled={settings.notifications.emailTicketUpdated}
+                                                <Toggle label="Ticket Updated" description="When a ticket you're watching is updated" enabled={uiSettings.notifications.emailTicketUpdated}
                                                     onChange={(v) => updateSettings('notifications', { emailTicketUpdated: v })} />
-                                                <Toggle label="Ticket Resolved" description="When a ticket is resolved" enabled={settings.notifications.emailTicketResolved}
+                                                <Toggle label="Ticket Resolved" description="When a ticket is resolved" enabled={uiSettings.notifications.emailTicketResolved}
                                                     onChange={(v) => updateSettings('notifications', { emailTicketResolved: v })} />
                                             </div>
                                         </div>
@@ -143,27 +186,17 @@ export default function Settings() {
                                                 <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Push Notifications</h3>
                                             </div>
                                             <div className="bg-gray-50 dark:bg-dark-border/30 rounded-xl px-4 divide-y divide-gray-200 dark:divide-dark-border">
-                                                <Toggle label="Ticket Created" enabled={settings.notifications.pushTicketCreated}
+                                                <Toggle label="Ticket Created" enabled={uiSettings.notifications.pushTicketCreated}
                                                     onChange={(v) => updateSettings('notifications', { pushTicketCreated: v })} />
-                                                <Toggle label="Ticket Updated" enabled={settings.notifications.pushTicketUpdated}
+                                                <Toggle label="Ticket Updated" enabled={uiSettings.notifications.pushTicketUpdated}
                                                     onChange={(v) => updateSettings('notifications', { pushTicketUpdated: v })} />
-                                                <Toggle label="Ticket Resolved" enabled={settings.notifications.pushTicketResolved}
+                                                <Toggle label="Ticket Resolved" enabled={uiSettings.notifications.pushTicketResolved}
                                                     onChange={(v) => updateSettings('notifications', { pushTicketResolved: v })} />
-                                            </div>
-                                        </div>
-                                        <div>
-                                            <div className="flex items-center space-x-2 mb-3">
-                                                <MessageSquare className="w-4 h-4 text-gray-500" />
-                                                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">In-App</h3>
-                                            </div>
-                                            <div className="bg-gray-50 dark:bg-dark-border/30 rounded-xl px-4">
-                                                <Toggle label="All In-App Notifications" description="Show notifications within the application" enabled={settings.notifications.inAppAll}
-                                                    onChange={(v) => updateSettings('notifications', { inAppAll: v })} />
                                             </div>
                                         </div>
                                     </div>
                                     <div className="flex justify-end pt-6 border-t border-gray-200 dark:border-dark-border mt-6">
-                                        <Button icon={Save} onClick={handleSave}>Save Preferences</Button>
+                                        <Button icon={Save} onClick={() => toast.success('Preferences saved')}>Save Preferences</Button>
                                     </div>
                                 </Card>
                             )}
@@ -173,9 +206,9 @@ export default function Settings() {
                                     <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">System Settings</h2>
                                     <div className="space-y-6">
                                         <div className="bg-gray-50 dark:bg-dark-border/30 rounded-xl px-4 divide-y divide-gray-200 dark:divide-dark-border">
-                                            <Toggle label="Auto-Assignment" description="Automatically assign tickets based on team workload" enabled={settings.system.autoAssign}
+                                            <Toggle label="Auto-Assignment" description="Automatically assign tickets based on team workload" enabled={uiSettings.system.autoAssign}
                                                 onChange={(v) => updateSettings('system', { autoAssign: v })} />
-                                            <Toggle label="SLA Monitoring" description="Track and alert on SLA breaches" enabled={settings.system.slaEnabled}
+                                            <Toggle label="SLA Monitoring" description="Track and alert on SLA breaches" enabled={uiSettings.system.slaEnabled}
                                                 onChange={(v) => updateSettings('system', { slaEnabled: v })} />
                                         </div>
                                         <div>
@@ -191,16 +224,16 @@ export default function Settings() {
                                                 ].map(sla => (
                                                     <div key={sla.key}>
                                                         <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{sla.label}</label>
-                                                        <input type="number" value={settings.system[sla.key]}
+                                                        <input type="number" value={uiSettings.system[sla.key]}
                                                             onChange={e => updateSettings('system', { [sla.key]: parseInt(e.target.value) || 0 })}
-                                                            className={cn('w-full px-3 py-2 border rounded-xl bg-white dark:bg-dark-bg text-gray-900 dark:text-white focus:ring-2 focus:border-transparent outline-none text-sm', sla.color)} />
+                                                            className={cn('w-full px-3 py-2 border border-gray-300 dark:border-dark-border rounded-xl bg-white dark:bg-dark-bg text-gray-900 dark:text-white focus:ring-2 focus:border-transparent outline-none text-sm', sla.color)} />
                                                     </div>
                                                 ))}
                                             </div>
                                         </div>
                                     </div>
                                     <div className="flex justify-end pt-6 border-t border-gray-200 dark:border-dark-border mt-6">
-                                        <Button icon={Save} onClick={handleSave}>Save System Settings</Button>
+                                        <Button icon={Save} onClick={() => toast.success('System settings saved')}>Save System Settings</Button>
                                     </div>
                                 </Card>
                             )}
@@ -210,9 +243,9 @@ export default function Settings() {
                                     <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">Integrations</h2>
                                     <div className="space-y-4">
                                         {[
-                                            { name: 'Slack', description: 'Get ticket notifications in your Slack channels', icon: '💬', connected: settings.integrations.slack, key: 'slack' },
-                                            { name: 'Email', description: 'Forward ticket updates to email', icon: '📧', connected: settings.integrations.email, key: 'email' },
-                                            { name: 'API Access', description: 'Generate and manage API keys', icon: '🔑', connected: settings.integrations.apiKeyGenerated, key: 'apiKeyGenerated' },
+                                            { name: 'Slack', description: 'Get ticket notifications in your Slack channels', icon: '💬', connected: uiSettings.integrations.slack, key: 'slack' },
+                                            { name: 'Email', description: 'Forward ticket updates to email', icon: '📧', connected: uiSettings.integrations.email, key: 'email' },
+                                            { name: 'API Access', description: 'Generate and manage API keys', icon: '🔑', connected: uiSettings.integrations.apiKeyGenerated, key: 'apiKeyGenerated' },
                                         ].map(integration => (
                                             <div key={integration.key} className="flex items-center justify-between p-5 bg-gray-50 dark:bg-dark-border/30 rounded-xl border border-gray-200 dark:border-dark-border">
                                                 <div className="flex items-center space-x-4">
@@ -242,24 +275,6 @@ export default function Settings() {
                                         <div className="bg-gray-50 dark:bg-dark-border/30 rounded-xl px-4">
                                             <Toggle label="Dark Mode" description="Switch between light and dark themes" enabled={darkMode} onChange={toggleDarkMode} />
                                         </div>
-                                        <div>
-                                            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Color Theme</h3>
-                                            <div className="flex space-x-3">
-                                                {[
-                                                    { name: 'Purple', colors: ['#667eea', '#764ba2'] },
-                                                    { name: 'Blue', colors: ['#3b82f6', '#1d4ed8'] },
-                                                    { name: 'Green', colors: ['#10b981', '#059669'] },
-                                                    { name: 'Orange', colors: ['#f59e0b', '#d97706'] },
-                                                    { name: 'Pink', colors: ['#ec4899', '#be185d'] },
-                                                ].map(theme => (
-                                                    <button key={theme.name} className="group flex flex-col items-center space-y-1.5" title={theme.name}>
-                                                        <div className="w-10 h-10 rounded-xl shadow-md ring-2 ring-transparent group-hover:ring-gray-300 transition-all"
-                                                            style={{ background: `linear-gradient(135deg, ${theme.colors[0]}, ${theme.colors[1]})` }} />
-                                                        <span className="text-xs text-gray-500">{theme.name}</span>
-                                                    </button>
-                                                ))}
-                                            </div>
-                                        </div>
                                     </div>
                                 </Card>
                             )}
@@ -269,8 +284,4 @@ export default function Settings() {
             </div>
         </div>
     );
-}
-
-function AnimatePresenceWrapper({ children }) {
-    return <AnimatePresence mode="wait">{children}</AnimatePresence>;
 }

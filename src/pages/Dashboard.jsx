@@ -1,4 +1,5 @@
 import { Inbox, AlertTriangle, Clock, CheckCircle } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 import StatCard from '../components/dashboard/StatCard';
 import PriorityChart from '../components/dashboard/PriorityChart';
 import RecentTicketsTable from '../components/dashboard/RecentTicketsTable';
@@ -6,25 +7,26 @@ import ActivityTimeline from '../components/dashboard/ActivityTimeline';
 import TrendingCarousel from '../components/dashboard/TrendingCarousel';
 import QuickActions from '../components/dashboard/QuickActions';
 import { useStore } from '../store/useStore';
+import { ticketsAPI } from '../services/api';
+import LoadingSkeleton from '../components/common/LoadingSkeleton';
 
 export default function Dashboard() {
-    const { getTeamTickets, currentTeam, fetchTickets, loading } = useStore();
-    const teamTickets = getTeamTickets();
+    const { currentTeam } = useStore();
 
-    // refresh tickets when team changes
-    useEffect(() => {
-        fetchTickets({ team: currentTeam ? currentTeam.id : undefined });
-    }, [currentTeam?.id]);
+    const { data: statsResponse, isLoading } = useQuery({
+        queryKey: ['stats', currentTeam?.id],
+        queryFn: () => ticketsAPI.getStats().then(res => res.data.data),
+    });
 
-    const totalTickets = teamTickets.length;
-    const criticalTickets = teamTickets.filter((t) => t.priority === 'Critical').length;
-    const resolvedToday = teamTickets.filter((t) => {
-        const today = new Date();
-        const updatedDate = new Date(t.updatedAt);
-        return t.status === 'Resolved' &&
-            updatedDate.toDateString() === today.toDateString();
-    }).length;
-    const avgResponseTime = '4.2h';
+    if (isLoading) {
+        return <LoadingSkeleton count={4} />;
+    }
+
+    const stats = statsResponse || {};
+    const totalTickets = stats.total || 0;
+    const criticalTickets = stats.byPriority?.find(p => p._id === 'Critical')?.count || 0;
+    const resolvedToday = stats.todaysResolved || 0;
+    const avgResponseTime = stats.avgResolution ? `${stats.avgResolution.toFixed(1)}h` : 'N/A';
 
     return (
         <div className="space-y-6">

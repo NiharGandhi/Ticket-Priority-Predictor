@@ -21,6 +21,13 @@ api.interceptors.response.use(
   (res) => res,
   (err) => {
     const message = err.response?.data?.message || err.message;
+    if (err.response?.status === 401) {
+      localStorage.removeItem('token');
+      // Simple redirect for unauthenticated responses not triggered within auth components
+      if (typeof window !== 'undefined' && window.location.pathname !== '/login' && window.location.pathname !== '/signup') {
+        window.location.href = '/login';
+      }
+    }
     return Promise.reject({ status: err.response?.status, message, data: err.response?.data });
   }
 );

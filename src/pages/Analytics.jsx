@@ -1,14 +1,16 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
     LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, AreaChart, Area,
     XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
 } from 'recharts';
 import { motion } from 'framer-motion';
-import { Download, TrendingUp, TrendingDown, Calendar, Ticket, CheckCircle, Clock, AlertTriangle } from 'lucide-react';
+import { Download, TrendingUp, TrendingDown, Ticket, CheckCircle, Clock, AlertTriangle, Loader2 } from 'lucide-react';
 import Card from '../components/common/Card';
 import Button from '../components/common/Button';
 import { mockAnalyticsData } from '../data/mockData';
 import { useStore } from '../store/useStore';
+import { ticketsAPI } from '../services/api';
 import { cn } from '../lib/utils';
 import toast from 'react-hot-toast';
 
@@ -35,19 +37,58 @@ const CustomTooltip = ({ active, payload, label }) => {
     return null;
 };
 
+const CHART_COLORS = {
+    Critical: '#ef4444',
+    High: '#f97316',
+    Medium: '#eab308',
+    Low: '#10b981',
+    Bug: '#ef4444',
+    Feature: '#3b82f6',
+    Enhancement: '#8b5cf6',
+    Support: '#10b981',
+    Security: '#f97316',
+};
+
 export default function Analytics() {
     const [dateRange, setDateRange] = useState('7d');
-    const { getTeamTickets, currentTeam } = useStore();
-    const teamTickets = getTeamTickets();
+    const { currentTeam } = useStore();
 
-    const totalTickets = teamTickets.length;
-    const resolvedTickets = teamTickets.filter(t => t.status === 'Resolved' || t.status === 'Closed').length;
+    const { data: statsResponse, isLoading } = useQuery({
+        queryKey: ['stats', currentTeam?.id],
+        queryFn: ticketsAPI.getStats,
+    });
+
+    const stats = statsResponse?.data;
+
+    const totalTickets = stats?.total || 0;
+    const resolvedObj = stats?.byStatus?.find(s => s._id === 'Resolved' || s._id === 'Closed');
+    const resolvedTickets = resolvedObj ? resolvedObj.count : 0;
     const resolutionRate = totalTickets > 0 ? Math.round((resolvedTickets / totalTickets) * 100) : 0;
-    const avgConfidence = teamTickets.length > 0 ? Math.round(teamTickets.reduce((s, t) => s + t.aiConfidence, 0) / teamTickets.length) : 0;
+
+    const categoryData = stats?.byCategory?.map(c => ({
+        category: c._id || 'Uncategorized',
+        count: c.count,
+        fill: CHART_COLORS[c._id] || '#667eea'
+    })) || mockAnalyticsData.ticketsByCategory;
+
+    const priorityData = stats?.byPriority?.map(p => ({
+        name: p._id || 'Unknown',
+        value: p.count,
+        color: CHART_COLORS[p._id] || '#6b7280'
+    })) || mockAnalyticsData.priorityDistribution;
 
     const handleExport = () => {
         toast.success('Analytics report exported!');
     };
+
+    if (isLoading) {
+        return (
+            <div className="flex flex-col items-center justify-center h-96 space-y-4">
+                <Loader2 className="w-8 h-8 text-primary-500 animate-spin" />
+                <p className="text-gray-500">Loading analytics...</p>
+            </div>
+        );
+    }
 
     return (
         <div className="space-y-6">
@@ -77,7 +118,7 @@ export default function Analytics() {
                     { label: 'Total Tickets', value: totalTickets, icon: Ticket, trend: '+12%', up: true, gradient: 'bg-gradient-primary' },
                     { label: 'Resolved', value: resolvedTickets, icon: CheckCircle, trend: '+24%', up: true, gradient: 'bg-gradient-success' },
                     { label: 'Resolution Rate', value: `${resolutionRate}%`, icon: TrendingUp, trend: '+5%', up: true, gradient: 'bg-gradient-secondary' },
-                    { label: 'AI Confidence', value: `${avgConfidence}%`, icon: AlertTriangle, trend: '+3%', up: true, gradient: 'bg-gradient-warning' },
+                    { label: 'Avg Resolution Time', value: `${Math.round(stats?.avgResolution || 0)}h`, icon: Clock, trend: '-3%', up: true, gradient: 'bg-gradient-warning' },
                 ].map((stat, i) => (
                     <motion.div key={stat.label} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.1 }}>
                         <Card className="p-5">
@@ -132,13 +173,13 @@ export default function Analytics() {
                 <Card className="p-6">
                     <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-6">Tickets by Category</h3>
                     <ResponsiveContainer width="100%" height={300}>
-                        <BarChart data={mockAnalyticsData.ticketsByCategory}>
+                        <BarChart data={categoryData}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                             <XAxis dataKey="category" stroke="#6b7280" fontSize={12} />
                             <YAxis stroke="#6b7280" fontSize={12} />
                             <Tooltip content={<CustomTooltip />} />
                             <Bar dataKey="count" name="Tickets" radius={[8, 8, 0, 0]}>
-                                {mockAnalyticsData.ticketsByCategory.map((entry, index) => (
+                                {categoryData.map((entry, index) => (
                                     <Cell key={`cell-${index}`} fill={entry.fill} />
                                 ))}
                             </Bar>
@@ -153,7 +194,7 @@ export default function Analytics() {
                         <ResponsiveContainer width="100%" height={300}>
                             <PieChart>
                                 <Pie
-                                    data={mockAnalyticsData.priorityDistribution}
+                                    data={priorityData}
                                     cx="50%"
                                     cy="50%"
                                     innerRadius={70}
@@ -163,13 +204,13 @@ export default function Analytics() {
                                     animationBegin={0}
                                     animationDuration={800}
                                 >
-                                    {mockAnalyticsData.priorityDistribution.map((entry, index) => (
+                                    {priorityData.map((entry, index) => (
                                         <Cell key={`cell-${index}`} fill={entry.color} />
                                     ))}
                                 </Pie>
                                 <Tooltip content={({ active, payload }) => {
                                     if (active && payload && payload.length) {
-                                        const total = mockAnalyticsData.priorityDistribution.reduce((s, i) => s + i.value, 0);
+                                        const total = priorityData.reduce((s, i) => s + i.value, 0) || 1;
                                         return (
                                             <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3 shadow-lg">
                                                 <p className="text-sm font-medium" style={{ color: payload[0].payload.color }}>{payload[0].name}</p>
@@ -183,7 +224,7 @@ export default function Analytics() {
                         </ResponsiveContainer>
                     </div>
                     <div className="grid grid-cols-2 gap-3 mt-2">
-                        {mockAnalyticsData.priorityDistribution.map((item) => (
+                        {priorityData.map((item) => (
                             <div key={item.name} className="flex items-center space-x-2">
                                 <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }} />
                                 <span className="text-sm text-gray-700 dark:text-gray-300">{item.name}</span>

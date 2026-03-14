@@ -1,16 +1,21 @@
 import { useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useStore } from '../store/useStore';
+import { useQuery } from '@tanstack/react-query';
+import { teamsAPI } from '../services/api';
 
 export default function useTeamFilter() {
     const [searchParams, setSearchParams] = useSearchParams();
-    const { currentTeam, setCurrentTeam, teams } = useStore();
+    const { currentTeam, setCurrentTeam } = useStore();
+    const { data: teamsRes } = useQuery({ queryKey: ['teams'], queryFn: teamsAPI.getAll });
+    const teams = teamsRes?.data || [];
 
     // On mount: read ?team= from URL and sync to store
     useEffect(() => {
         const teamParam = searchParams.get('team');
-        if (teamParam && teams.some(t => t.id === teamParam) && teamParam !== currentTeam?.id) {
-            setCurrentTeam(teamParam);
+        if (teamParam && teams.some(t => t.id === teamParam || t._id === teamParam) && teamParam !== currentTeam?.id) {
+            const matchedTeam = teams.find(t => t.id === teamParam || t._id === teamParam);
+            setCurrentTeam({ id: matchedTeam._id || matchedTeam.id, name: matchedTeam.name });
         }
     }, [searchParams, teams]);
 

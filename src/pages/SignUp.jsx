@@ -1,17 +1,18 @@
-﻿import { useState } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Mail, Lock, Eye, EyeOff, User, Chrome, Github } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import toast from 'react-hot-toast';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import Button from '../components/common/Button';
 import { authAPI, setAuthToken } from '../services/api';
 
 export default function SignUp() {
     const navigate = useNavigate();
+    const queryClient = useQueryClient();
     const [showPassword, setShowPassword] = useState(false);
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-    const [loading, setLoading] = useState(false);
     const [agreedToTerms, setAgreedToTerms] = useState(false);
 
     const {
@@ -23,21 +24,26 @@ export default function SignUp() {
 
     const password = watch('password');
 
-    const onSubmit = async (data) => {
+    const registerMutation = useMutation({
+        mutationFn: (data) => authAPI.register({ name: data.name, email: data.email, password: data.password }),
+        onSuccess: (res) => {
+            const token = res.data.data.token;
+            setAuthToken(token);
+            toast.success('Account created and logged in');
+            queryClient.invalidateQueries({ queryKey: ['me'] });
+            navigate('/');
+        },
+        onError: (err) => {
+            toast.error(err.message || 'Signup failed');
+        }
+    });
+
+    const onSubmit = (data) => {
         if (!agreedToTerms) {
             toast.error('Please agree to the terms and conditions');
             return;
         }
-        setLoading(true);
-        try {
-            const res = await authAPI.register({ name: data.name, email: data.email, password: data.password });
-            const token = res.data.data.token;
-            setAuthToken(token);
-            toast.success('Account created and logged in');
-            navigate('/');
-        } catch (err) {
-            toast.error(err.message || 'Signup failed');
-        } finally { setLoading(false); }
+        registerMutation.mutate(data);
     };
 
     const handleSocialSignUp = (provider) => {
@@ -226,8 +232,8 @@ export default function SignUp() {
                         </label>
 
                         
-                        <Button type="submit" loading={loading} className="w-full">
-                            {loading ? 'Creating account...' : 'Create Account'}
+                        <Button type="submit" loading={registerMutation.isPending} className="w-full">
+                            {registerMutation.isPending ? 'Creating account...' : 'Create Account'}
                         </Button>
                     </form>
 
@@ -304,10 +310,10 @@ export default function SignUp() {
 
                     <div className="space-y-4 w-full max-w-md">
                         {[
-                            'âœ“ 14-day free trial, no credit card required',
-                            'âœ“ AI-powered smart routing and prioritization',
-                            'âœ“ Real-time collaboration with your team',
-                            'âœ“ Advanced analytics and reporting',
+                            '✓ 14-day free trial, no credit card required',
+                            '✓ AI-powered smart routing and prioritization',
+                            '✓ Real-time collaboration with your team',
+                            '✓ Advanced analytics and reporting',
                         ].map((feature, index) => (
                             <motion.div
                                 key={index}

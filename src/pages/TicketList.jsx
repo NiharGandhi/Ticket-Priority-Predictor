@@ -1,10 +1,13 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { Search, Filter, LayoutGrid, List, Plus, Columns3, ChevronLeft, ChevronRight, Download, Trash2, RefreshCw, CheckSquare, Square, X } from 'lucide-react';
 import Card from '../components/common/Card';
 import Badge from '../components/common/Badge';
 import Button from '../components/common/Button';
+import LoadingSkeleton from '../components/common/LoadingSkeleton';
 import { useStore } from '../store/useStore';
+import { ticketsAPI } from '../services/api';
 import { formatRelativeTime, cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
@@ -13,41 +16,43 @@ const ITEMS_PER_PAGE = 12;
 
 export default function TicketList() {
     const navigate = useNavigate();
-    const { getTeamTickets, fetchTickets, loading, currentTeam } = useStore();
-    const teamTickets = getTeamTickets();
+    const { currentTeam } = useStore();
 
-    useEffect(() => {
-        // fetch tickets when currentTeam or filters change
-        const params = {
-            team: currentTeam?.id || currentTeam?._id || undefined,
-            search: searchQuery || undefined,
-            priority: selectedPriority.length ? selectedPriority.join(',') : undefined,
-            status: selectedStatus.length ? selectedStatus.join(',') : undefined,
-            page: currentPage,
-            limit: ITEMS_PER_PAGE,
-        };
-        fetchTickets(params);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [currentTeam, searchQuery, selectedPriority, selectedStatus, currentPage]);
     const [viewMode, setViewMode] = useState('grid');
     const [searchQuery, setSearchQuery] = useState('');
+    const [debouncedSearch, setDebouncedSearch] = useState('');
     const [selectedPriority, setSelectedPriority] = useState([]);
     const [selectedStatus, setSelectedStatus] = useState([]);
     const [currentPage, setCurrentPage] = useState(1);
     const [selectedTickets, setSelectedTickets] = useState([]);
     const [showFilters, setShowFilters] = useState(false);
 
-    const filteredTickets = useMemo(() => {
-        return teamTickets.filter((ticket) => {
-            const matchesSearch = ticket.title.toLowerCase().includes(searchQuery.toLowerCase()) || ticket.id.includes(searchQuery);
-            const matchesPriority = selectedPriority.length === 0 || selectedPriority.includes(ticket.priority);
-            const matchesStatus = selectedStatus.length === 0 || selectedStatus.includes(ticket.status);
-            return matchesSearch && matchesPriority && matchesStatus;
-        });
-    }, [searchQuery, selectedPriority, selectedStatus]);
+    // Debounce search query
+    useEffect(() => {
+        const handler = setTimeout(() => {
+            setDebouncedSearch(searchQuery);
+            setCurrentPage(1); // Reset to page 1 on new search
+        }, 500);
+        return () => clearTimeout(handler);
+    }, [searchQuery]);
 
-    const totalPages = Math.ceil(filteredTickets.length / ITEMS_PER_PAGE);
-    const paginatedTickets = filteredTickets.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
+    // Fetch tickets with React Query
+    const { data, isLoading, isFetching } = useQuery({
+        queryKey: ['tickets', currentTeam?.id, debouncedSearch, selectedPriority, selectedStatus, currentPage, viewMode === 'kanban' ? 50 : ITEMS_PER_PAGE],
+        queryFn: () => ticketsAPI.getAll({
+            team: currentTeam?.id || undefined,
+            search: debouncedSearch || undefined,
+            priority: selectedPriority.length ? selectedPriority.join(',') : undefined,
+            status: selectedStatus.length ? selectedStatus.join(',') : undefined,
+            page: currentPage,
+            limit: viewMode === 'kanban' ? 50 : ITEMS_PER_PAGE, // Load more for Kanban
+        }).then(res => res.data.data),
+        keepPreviousData: true,
+    });
+
+    const tickets = data?.tickets || [];
+    const totalPages = data?.totalPages || 1;
+    const totalTicketsCount = data?.total || 0;
 
     const togglePriority = (priority) => {
         setSelectedPriority(prev => prev.includes(priority) ? prev.filter(p => p !== priority) : [...prev, priority]);
@@ -64,17 +69,18 @@ export default function TicketList() {
     };
 
     const toggleSelectAll = () => {
-        if (selectedTickets.length === paginatedTickets.length) {
+        if (selectedTickets.length === tickets.length && tickets.length > 0) {
             setSelectedTickets([]);
         } else {
-            setSelectedTickets(paginatedTickets.map(t => t.id));
+            setSelectedTickets(tickets.map(t => t._id || t.ticketId));
         }
     };
 
     const handleExport = () => {
         const csv = ['ID,Title,Priority,Status,Category,Assignee,Created'];
-        filteredTickets.forEach(t => {
-            csv.push(`${t.id},"${t.title}",${t.priority},${t.status},${t.category},${t.assignee.name},${t.createdAt}`);
+        tickets.forEach(t => {
+            const assigneeName = t.assignee?.name || 'Unassigned';
+            csv.push(`${t.ticketId},"${t.title}",${t.priority},${t.status},${t.category},${assigneeName},${t.createdAt}`);
         });
         const blob = new Blob([csv.join('\n')], { type: 'text/csv' });
         const url = URL.createObjectURL(blob);
@@ -83,11 +89,11 @@ export default function TicketList() {
         a.download = 'tickets-export.csv';
         a.click();
         URL.revokeObjectURL(url);
-        toast.success(`Exported ${filteredTickets.length} tickets`);
+        toast.success(`Exported ${tickets.length} tickets from current view`);
     };
 
     const handleBulkDelete = () => {
-        toast.success(`${selectedTickets.length} tickets deleted`);
+        toast.success(`${selectedTickets.length} tickets deleted (simulated)`);
         setSelectedTickets([]);
     };
 
@@ -95,15 +101,16 @@ export default function TicketList() {
         setSelectedPriority([]);
         setSelectedStatus([]);
         setSearchQuery('');
+        setDebouncedSearch('');
         setCurrentPage(1);
     };
 
     // Kanban grouping
     const kanbanColumns = useMemo(() => {
         const cols = { 'Open': [], 'In Progress': [], 'Resolved': [], 'Closed': [] };
-        filteredTickets.forEach(t => { if (cols[t.status]) cols[t.status].push(t); });
+        tickets.forEach(t => { if (cols[t.status]) cols[t.status].push(t); });
         return cols;
-    }, [filteredTickets]);
+    }, [tickets]);
 
     const kanbanColors = { 'Open': 'border-t-primary-500', 'In Progress': 'border-t-secondary-500', 'Resolved': 'border-t-success-500', 'Closed': 'border-t-gray-400' };
 
@@ -113,10 +120,12 @@ export default function TicketList() {
             <div className="flex items-center justify-between flex-wrap gap-4">
                 <div>
                     <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">All Tickets</h1>
-                    <p className="text-gray-600 dark:text-gray-400">{filteredTickets.length} tickets found</p>
+                    <p className="text-gray-600 dark:text-gray-400">
+                        {isLoading ? 'Loading...' : `${totalTicketsCount} tickets found`}
+                    </p>
                 </div>
                 <div className="flex items-center space-x-3">
-                    <Button variant="outline" icon={Download} onClick={handleExport}>Export</Button>
+                    <Button variant="outline" icon={Download} onClick={handleExport} disabled={isLoading || tickets.length === 0}>Export</Button>
                     <Button icon={Plus} onClick={() => navigate('/create')}>Create Ticket</Button>
                 </div>
             </div>
@@ -131,9 +140,14 @@ export default function TicketList() {
                                 type="text"
                                 placeholder="Search by title or ID..."
                                 value={searchQuery}
-                                onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
+                                onChange={(e) => setSearchQuery(e.target.value)}
                                 className="w-full pl-10 pr-4 py-2.5 border border-gray-300 dark:border-dark-border rounded-lg bg-white dark:bg-dark-bg text-gray-900 dark:text-white placeholder-gray-500 focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all"
                             />
+                            {isFetching && searchQuery === debouncedSearch && (
+                                <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                                    <div className="w-4 h-4 border-2 border-primary-500 border-t-transparent rounded-full animate-spin"></div>
+                                </div>
+                            )}
                         </div>
                         <button onClick={() => setShowFilters(!showFilters)} className={cn('flex items-center space-x-2 px-4 py-2.5 rounded-lg border transition-all', showFilters ? 'border-primary-500 bg-primary-50 text-primary-600' : 'border-gray-300 dark:border-dark-border text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-dark-border')}>
                             <Filter className="w-4 h-4" />
@@ -151,7 +165,7 @@ export default function TicketList() {
                             { mode: 'list', icon: List, label: 'List' },
                             { mode: 'kanban', icon: Columns3, label: 'Kanban' },
                         ].map(v => (
-                            <button key={v.mode} onClick={() => setViewMode(v.mode)} title={v.label}
+                            <button key={v.mode} onClick={() => { setViewMode(v.mode); setCurrentPage(1); }} title={v.label}
                                 className={cn('p-2 rounded-md transition-all', viewMode === v.mode ? 'bg-white dark:bg-dark-surface shadow-sm text-primary-600' : 'text-gray-500 hover:text-gray-700')}>
                                 <v.icon className="w-4 h-4" />
                             </button>
@@ -217,116 +231,155 @@ export default function TicketList() {
                 )}
             </AnimatePresence>
 
-            {/* Views */}
-            {viewMode === 'kanban' ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                    {Object.entries(kanbanColumns).map(([status, tickets]) => (
-                        <div key={status} className={cn('bg-gray-50 dark:bg-dark-border/20 rounded-xl p-4 border-t-4', kanbanColors[status])}>
-                            <div className="flex items-center justify-between mb-4">
-                                <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300">{status}</h3>
-                                <span className="text-xs font-medium bg-white dark:bg-dark-surface px-2 py-0.5 rounded-full text-gray-600 dark:text-gray-400 shadow-sm">{tickets.length}</span>
-                            </div>
-                            <div className="space-y-3 max-h-[65vh] overflow-y-auto pr-1">
-                                {tickets.map((ticket) => (
-                                    <motion.div key={ticket.id} whileHover={{ y: -2 }} onClick={() => navigate(`/tickets/${ticket.id}`)}
-                                        className="bg-white dark:bg-dark-surface rounded-lg p-4 shadow-soft hover:shadow-medium transition-all cursor-pointer border border-gray-200 dark:border-dark-border">
-                                        <div className="flex items-start justify-between mb-2">
-                                            <span className="text-xs text-gray-500">#{ticket.id}</span>
-                                            <Badge type="priority" value={ticket.priority}>{ticket.priority}</Badge>
-                                        </div>
-                                        <h4 className="text-sm font-medium text-gray-900 dark:text-white mb-3 line-clamp-2">{ticket.title}</h4>
-                                        <div className="flex items-center justify-between">
-                                            <div className="w-6 h-6 bg-gradient-primary rounded-full flex items-center justify-center text-white text-[10px] font-bold">{ticket.assignee.avatar}</div>
-                                            <span className="text-xs text-gray-500">{formatRelativeTime(ticket.createdAt)}</span>
-                                        </div>
-                                    </motion.div>
-                                ))}
-                            </div>
-                        </div>
-                    ))}
+            {/* Loading State */}
+            {isLoading ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <Card className="p-5 h-64"><LoadingSkeleton count={4} /></Card>
+                    <Card className="p-5 h-64"><LoadingSkeleton count={4} /></Card>
+                    <Card className="p-5 h-64"><LoadingSkeleton count={4} /></Card>
                 </div>
-            ) : viewMode === 'grid' ? (
-                <>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {paginatedTickets.map((ticket, index) => (
-                            <motion.div key={ticket.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: index * 0.04 }}>
-                                <Card clickable onClick={() => navigate(`/tickets/${ticket.id}`)} className="p-5 h-full flex flex-col relative group">
-                                    <button onClick={(e) => { e.stopPropagation(); toggleTicketSelection(ticket.id); }}
-                                        className="absolute top-3 left-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                                        {selectedTickets.includes(ticket.id) ? <CheckSquare className="w-5 h-5 text-primary-600" /> : <Square className="w-5 h-5 text-gray-400" />}
-                                    </button>
-                                    <div className="flex items-start justify-between mb-3">
-                                        <span className="text-sm font-medium text-gray-500 dark:text-gray-400">#{ticket.id}</span>
-                                        <Badge type="priority" value={ticket.priority}>{ticket.priority}</Badge>
-                                    </div>
-                                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2 line-clamp-2">{ticket.title}</h3>
-                                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-4 line-clamp-2 flex-1">{ticket.description}</p>
-                                    <div className="flex items-center justify-between pt-3 border-t border-gray-200 dark:border-dark-border">
-                                        <div className="flex items-center space-x-2">
-                                            <div className="w-7 h-7 bg-gradient-primary rounded-full flex items-center justify-center text-white text-xs font-semibold">{ticket.assignee.avatar}</div>
-                                            <span className="text-sm text-gray-600 dark:text-gray-400">{ticket.assignee.name}</span>
-                                        </div>
-                                        <Badge type="status" value={ticket.status}>{ticket.status}</Badge>
-                                    </div>
-                                    <div className="mt-3 flex items-center justify-between text-xs text-gray-500">
-                                        <span>{formatRelativeTime(ticket.createdAt)}</span>
-                                        <div className="flex items-center space-x-1">
-                                            <div className="w-12 h-1.5 bg-gray-200 dark:bg-dark-border rounded-full overflow-hidden">
-                                                <div className="h-full bg-gradient-success rounded-full" style={{ width: `${ticket.aiConfidence}%` }} />
+            ) : tickets.length === 0 ? (
+                <div className="text-center py-12">
+                    <p className="text-gray-500 dark:text-gray-400">No tickets found matching your criteria.</p>
+                    {(debouncedSearch || selectedPriority.length || selectedStatus.length) && (
+                        <Button variant="ghost" className="mt-4" onClick={clearFilters}>Clear Filters</Button>
+                    )}
+                </div>
+            ) : (
+                /* Views */
+                viewMode === 'kanban' ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                        {Object.entries(kanbanColumns).map(([status, tickets]) => (
+                            <div key={status} className={cn('bg-gray-50 dark:bg-dark-border/20 rounded-xl p-4 border-t-4', kanbanColors[status])}>
+                                <div className="flex items-center justify-between mb-4">
+                                    <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300">{status}</h3>
+                                    <span className="text-xs font-medium bg-white dark:bg-dark-surface px-2 py-0.5 rounded-full text-gray-600 dark:text-gray-400 shadow-sm">{tickets.length}</span>
+                                </div>
+                                <div className="space-y-3 max-h-[65vh] overflow-y-auto pr-1">
+                                    {tickets.map((ticket) => {
+                                        const tId = ticket._id || ticket.ticketId || ticket.id;
+                                        return (
+                                        <motion.div key={tId} whileHover={{ y: -2 }} onClick={() => navigate(`/tickets/${tId}`)}
+                                            className="bg-white dark:bg-dark-surface rounded-lg p-4 shadow-soft hover:shadow-medium transition-all cursor-pointer border border-gray-200 dark:border-dark-border">
+                                            <div className="flex items-start justify-between mb-2">
+                                                <span className="text-xs text-gray-500">#{tId?.substring(0, 8)}</span>
+                                                <Badge type="priority" value={ticket.priority}>{ticket.priority}</Badge>
                                             </div>
-                                            <span>{ticket.aiConfidence}%</span>
-                                        </div>
-                                    </div>
-                                </Card>
-                            </motion.div>
+                                            <h4 className="text-sm font-medium text-gray-900 dark:text-white mb-3 line-clamp-2">{ticket.title}</h4>
+                                            <div className="flex items-center justify-between">
+                                                {ticket.assignee ? (
+                                                    <div className="w-6 h-6 bg-gradient-primary rounded-full flex items-center justify-center text-white text-[10px] font-bold">
+                                                        {ticket.assignee.name?.substring(0, 2).toUpperCase()}
+                                                    </div>
+                                                ) : (
+                                                    <span className="text-xs text-gray-400">Unassigned</span>
+                                                )}
+                                                <span className="text-xs text-gray-500">{formatRelativeTime(ticket.createdAt)}</span>
+                                            </div>
+                                        </motion.div>
+                                    )})}
+                                </div>
+                            </div>
                         ))}
                     </div>
-                    {/* Pagination */}
-                    {totalPages > 1 && <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />}
-                </>
-            ) : (
-                <>
-                    <Card className="overflow-hidden">
-                        <table className="w-full">
-                            <thead>
-                                <tr className="border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-border/30">
-                                    <th className="py-3 px-4 text-left">
-                                        <button onClick={toggleSelectAll} className="text-gray-400 hover:text-gray-600">
-                                            {selectedTickets.length === paginatedTickets.length ? <CheckSquare className="w-4 h-4 text-primary-600" /> : <Square className="w-4 h-4" />}
+                ) : viewMode === 'grid' ? (
+                    <>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {tickets.map((ticket, index) => {
+                                const tId = ticket._id || ticket.ticketId || ticket.id;
+                                return (
+                                <motion.div key={tId} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: index * 0.04 }}>
+                                    <Card clickable onClick={() => navigate(`/tickets/${tId}`)} className="p-5 h-full flex flex-col relative group">
+                                        <button onClick={(e) => { e.stopPropagation(); toggleTicketSelection(tId); }}
+                                            className="absolute top-3 left-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            {selectedTickets.includes(tId) ? <CheckSquare className="w-5 h-5 text-primary-600" /> : <Square className="w-5 h-5 text-gray-400" />}
                                         </button>
-                                    </th>
-                                    {['ID', 'Title', 'Priority', 'Status', 'Assignee', 'Created'].map(h => (
-                                        <th key={h} className="text-left py-3 px-4 text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">{h}</th>
-                                    ))}
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {paginatedTickets.map((ticket) => (
-                                    <tr key={ticket.id} className="border-b border-gray-100 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-border/50 transition-colors cursor-pointer"
-                                        onClick={() => navigate(`/tickets/${ticket.id}`)}>
-                                        <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
-                                            <button onClick={() => toggleTicketSelection(ticket.id)}>
-                                                {selectedTickets.includes(ticket.id) ? <CheckSquare className="w-4 h-4 text-primary-600" /> : <Square className="w-4 h-4 text-gray-400" />}
-                                            </button>
-                                        </td>
-                                        <td className="py-3 px-4"><span className="text-sm font-medium text-gray-900 dark:text-white">#{ticket.id}</span></td>
-                                        <td className="py-3 px-4"><span className="text-sm text-gray-900 dark:text-white truncate max-w-xs block">{ticket.title}</span></td>
-                                        <td className="py-3 px-4"><Badge type="priority" value={ticket.priority}>{ticket.priority}</Badge></td>
-                                        <td className="py-3 px-4"><Badge type="status" value={ticket.status}>{ticket.status}</Badge></td>
-                                        <td className="py-3 px-4">
+                                        <div className="flex items-start justify-between mb-3">
+                                            <span className="text-sm font-medium text-gray-500 dark:text-gray-400">#{tId?.substring(0, 8)}</span>
+                                            <Badge type="priority" value={ticket.priority}>{ticket.priority}</Badge>
+                                        </div>
+                                        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2 line-clamp-2">{ticket.title}</h3>
+                                        <p className="text-sm text-gray-600 dark:text-gray-400 mb-4 line-clamp-2 flex-1">{ticket.description}</p>
+                                        <div className="flex items-center justify-between pt-3 border-t border-gray-200 dark:border-dark-border">
                                             <div className="flex items-center space-x-2">
-                                                <div className="w-7 h-7 bg-gradient-primary rounded-full flex items-center justify-center text-white text-xs font-semibold">{ticket.assignee.avatar}</div>
-                                                <span className="text-sm text-gray-700 dark:text-gray-300">{ticket.assignee.name}</span>
+                                                {ticket.assignee ? (
+                                                    <>
+                                                        <div className="w-7 h-7 bg-gradient-primary rounded-full flex items-center justify-center text-white text-xs font-semibold">
+                                                            {ticket.assignee.name.substring(0, 2).toUpperCase()}
+                                                        </div>
+                                                        <span className="text-sm text-gray-600 dark:text-gray-400">{ticket.assignee.name}</span>
+                                                    </>
+                                                ) : <span className="text-sm text-gray-500">Unassigned</span>}
                                             </div>
-                                        </td>
-                                        <td className="py-3 px-4"><span className="text-sm text-gray-500">{formatRelativeTime(ticket.createdAt)}</span></td>
+                                            <Badge type="status" value={ticket.status}>{ticket.status}</Badge>
+                                        </div>
+                                        <div className="mt-3 flex items-center justify-between text-xs text-gray-500">
+                                            <span>{formatRelativeTime(ticket.createdAt)}</span>
+                                            {ticket.aiPredictions?.confidence && (
+                                                <div className="flex items-center space-x-1">
+                                                    <div className="w-12 h-1.5 bg-gray-200 dark:bg-dark-border rounded-full overflow-hidden">
+                                                        <div className="h-full bg-gradient-success rounded-full" style={{ width: `${ticket.aiPredictions.confidence}%` }} />
+                                                    </div>
+                                                    <span>{ticket.aiPredictions.confidence}%</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </Card>
+                                </motion.div>
+                            )})}
+                        </div>
+                        {totalPages > 1 && <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />}
+                    </>
+                ) : (
+                    <>
+                        <Card className="overflow-hidden">
+                            <table className="w-full">
+                                <thead>
+                                    <tr className="border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-border/30">
+                                        <th className="py-3 px-4 text-left">
+                                            <button onClick={toggleSelectAll} className="text-gray-400 hover:text-gray-600">
+                                                {selectedTickets.length === tickets.length && tickets.length > 0 ? <CheckSquare className="w-4 h-4 text-primary-600" /> : <Square className="w-4 h-4" />}
+                                            </button>
+                                        </th>
+                                        {['ID', 'Title', 'Priority', 'Status', 'Assignee', 'Created'].map(h => (
+                                            <th key={h} className="text-left py-3 px-4 text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">{h}</th>
+                                        ))}
                                     </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </Card>
-                    {totalPages > 1 && <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />}
-                </>
+                                </thead>
+                                <tbody className={cn(isFetching && "opacity-50 pointer-events-none")}>
+                                    {tickets.map((ticket) => {
+                                        const tId = ticket._id || ticket.ticketId || ticket.id;
+                                        return (
+                                        <tr key={tId} className="border-b border-gray-100 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-border/50 transition-colors cursor-pointer"
+                                            onClick={() => navigate(`/tickets/${tId}`)}>
+                                            <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
+                                                <button onClick={() => toggleTicketSelection(tId)}>
+                                                    {selectedTickets.includes(tId) ? <CheckSquare className="w-4 h-4 text-primary-600" /> : <Square className="w-4 h-4 text-gray-400" />}
+                                                </button>
+                                            </td>
+                                            <td className="py-3 px-4"><span className="text-sm font-medium text-gray-900 dark:text-white">#{tId?.substring(0, 8)}</span></td>
+                                            <td className="py-3 px-4"><span className="text-sm text-gray-900 dark:text-white truncate max-w-xs block">{ticket.title}</span></td>
+                                            <td className="py-3 px-4"><Badge type="priority" value={ticket.priority}>{ticket.priority}</Badge></td>
+                                            <td className="py-3 px-4"><Badge type="status" value={ticket.status}>{ticket.status}</Badge></td>
+                                            <td className="py-3 px-4">
+                                                {ticket.assignee ? (
+                                                    <div className="flex items-center space-x-2">
+                                                        <div className="w-7 h-7 bg-gradient-primary rounded-full flex items-center justify-center text-white text-xs font-semibold">
+                                                            {ticket.assignee.name.substring(0, 2).toUpperCase()}
+                                                        </div>
+                                                        <span className="text-sm text-gray-700 dark:text-gray-300">{ticket.assignee.name}</span>
+                                                    </div>
+                                                ) : <span className="text-sm text-gray-500">Unassigned</span>}
+                                            </td>
+                                            <td className="py-3 px-4"><span className="text-sm text-gray-500">{formatRelativeTime(ticket.createdAt)}</span></td>
+                                        </tr>
+                                    )})}
+                                </tbody>
+                            </table>
+                        </Card>
+                        {totalPages > 1 && <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />}
+                    </>
+                )
             )}
         </div>
     );
@@ -341,7 +394,7 @@ function Pagination({ currentPage, totalPages, onPageChange }) {
     for (let i = start; i <= end; i++) pages.push(i);
 
     return (
-        <div className="flex items-center justify-center space-x-2">
+        <div className="flex items-center justify-center space-x-2 mt-8">
             <button onClick={() => onPageChange(Math.max(1, currentPage - 1))} disabled={currentPage === 1}
                 className="p-2 rounded-lg border border-gray-300 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-border disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
                 <ChevronLeft className="w-4 h-4 text-gray-600 dark:text-gray-400" />

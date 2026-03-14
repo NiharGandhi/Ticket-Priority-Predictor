@@ -1,16 +1,26 @@
-﻿import { useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Eye, Edit, Trash2, MoreVertical } from 'lucide-react';
+import { Eye, Edit, Trash2 } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 import Card from '../common/Card';
 import Badge from '../common/Badge';
 import { formatRelativeTime } from '../../lib/utils';
-import { mockTickets } from '../../data/mockData';
+import { ticketsAPI } from '../../services/api';
+import { useStore } from '../../store/useStore';
+import LoadingSkeleton from '../common/LoadingSkeleton';
 
 export default function RecentTicketsTable() {
     const navigate = useNavigate();
+    const { currentTeam } = useStore();
     const [sortField, setSortField] = useState(null);
     const [sortDirection, setSortDirection] = useState('asc');
-    const recentTickets = mockTickets.slice(0, 10);
+
+    const { data: ticketsResponse, isLoading } = useQuery({
+        queryKey: ['tickets', 'recent', currentTeam?.id],
+        queryFn: () => ticketsAPI.getAll({ limit: 10, team: currentTeam?.id }).then(res => res.data.data),
+    });
+
+    const recentTickets = ticketsResponse?.tickets || [];
 
     const handleSort = (field) => {
         if (sortField === field) {
@@ -20,6 +30,10 @@ export default function RecentTicketsTable() {
             setSortDirection('asc');
         }
     };
+
+    if (isLoading) {
+        return <Card className="p-6"><LoadingSkeleton count={3} /></Card>;
+    }
 
     return (
         <Card className="p-6 overflow-hidden">
@@ -31,7 +45,7 @@ export default function RecentTicketsTable() {
                     onClick={() => navigate('/tickets')}
                     className="text-sm text-primary-600 hover:text-primary-700 font-medium"
                 >
-                    View all â†’
+                    View all &rarr;
                 </button>
             </div>
 
@@ -41,7 +55,7 @@ export default function RecentTicketsTable() {
                         <tr className="border-b border-gray-200 dark:border-dark-border">
                             <th
                                 className="text-left py-3 px-4 text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-900 dark:hover:text-white"
-                                onClick={() => handleSort('id')}
+                                onClick={() => handleSort('ticketId')}
                             >
                                 ID
                             </th>
@@ -71,13 +85,13 @@ export default function RecentTicketsTable() {
                     <tbody>
                         {recentTickets.map((ticket) => (
                             <tr
-                                key={ticket.id}
+                                key={ticket._id || ticket.ticketId}
                                 className="border-b border-gray-100 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-border/50 transition-colors cursor-pointer"
-                                onClick={() => navigate(`/tickets/${ticket.id}`)}
+                                onClick={() => navigate(`/tickets/${ticket._id}`)}
                             >
                                 <td className="py-3 px-4">
                                     <span className="text-sm font-medium text-gray-900 dark:text-white">
-                                        #{ticket.id}
+                                        #{ticket.ticketId?.substring(0, 8)}
                                     </span>
                                 </td>
                                 <td className="py-3 px-4">
@@ -96,14 +110,18 @@ export default function RecentTicketsTable() {
                                     </Badge>
                                 </td>
                                 <td className="py-3 px-4">
-                                    <div className="flex items-center space-x-2">
-                                        <div className="w-8 h-8 bg-gradient-primary rounded-full flex items-center justify-center text-white text-xs font-semibold">
-                                            {ticket.assignee.avatar}
+                                    {ticket.assignee ? (
+                                        <div className="flex items-center space-x-2">
+                                            <div className="w-8 h-8 bg-gradient-primary rounded-full flex items-center justify-center text-white text-xs font-semibold">
+                                                {ticket.assignee.name?.substring(0, 2).toUpperCase()}
+                                            </div>
+                                            <span className="text-sm text-gray-900 dark:text-white">
+                                                {ticket.assignee.name}
+                                            </span>
                                         </div>
-                                        <span className="text-sm text-gray-900 dark:text-white">
-                                            {ticket.assignee.name}
-                                        </span>
-                                    </div>
+                                    ) : (
+                                        <span className="text-sm text-gray-500">Unassigned</span>
+                                    )}
                                 </td>
                                 <td className="py-3 px-4">
                                     <span className="text-sm text-gray-600 dark:text-gray-400">
@@ -116,22 +134,10 @@ export default function RecentTicketsTable() {
                                             className="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-border rounded transition-colors"
                                             onClick={(e) => {
                                                 e.stopPropagation();
-                                                navigate(`/tickets/${ticket.id}`);
+                                                navigate(`/tickets/${ticket._id}`);
                                             }}
                                         >
                                             <Eye className="w-4 h-4 text-gray-600 dark:text-gray-400" />
-                                        </button>
-                                        <button
-                                            className="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-border rounded transition-colors"
-                                            onClick={(e) => e.stopPropagation()}
-                                        >
-                                            <Edit className="w-4 h-4 text-gray-600 dark:text-gray-400" />
-                                        </button>
-                                        <button
-                                            className="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-border rounded transition-colors"
-                                            onClick={(e) => e.stopPropagation()}
-                                        >
-                                            <Trash2 className="w-4 h-4 text-danger-600" />
                                         </button>
                                     </div>
                                 </td>
@@ -139,6 +145,11 @@ export default function RecentTicketsTable() {
                         ))}
                     </tbody>
                 </table>
+                {recentTickets.length === 0 && (
+                    <div className="text-center py-6 text-gray-500 dark:text-gray-400">
+                        No recent tickets found.
+                    </div>
+                )}
             </div>
         </Card>
     );

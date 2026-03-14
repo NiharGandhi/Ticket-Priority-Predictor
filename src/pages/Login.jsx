@@ -1,18 +1,19 @@
-﻿import { useState } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Mail, Lock, Eye, EyeOff, Chrome, Github } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import toast from 'react-hot-toast';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import Button from '../components/common/Button';
 import Input from '../components/common/Input';
 import { authAPI, setAuthToken } from '../services/api';
 
 export default function Login() {
     const navigate = useNavigate();
+    const queryClient = useQueryClient();
     const [showPassword, setShowPassword] = useState(false);
     const [rememberMe, setRememberMe] = useState(false);
-    const [loading, setLoading] = useState(false);
 
     const {
         register,
@@ -20,17 +21,22 @@ export default function Login() {
         formState: { errors },
     } = useForm();
 
-    const onSubmit = async (data) => {
-        setLoading(true);
-        try {
-            const res = await authAPI.login(data);
+    const loginMutation = useMutation({
+        mutationFn: authAPI.login,
+        onSuccess: (res) => {
             const token = res.data.data.token;
             setAuthToken(token);
             toast.success('Login successful!');
+            queryClient.invalidateQueries({ queryKey: ['me'] });
             navigate('/');
-        } catch (err) {
+        },
+        onError: (err) => {
             toast.error(err.message || 'Login failed');
-        } finally { setLoading(false); }
+        }
+    });
+
+    const onSubmit = (data) => {
+        loginMutation.mutate(data);
     };
 
     const handleSocialLogin = (provider) => {
@@ -183,10 +189,10 @@ export default function Login() {
                         
                         <Button
                             type="submit"
-                            loading={loading}
+                            loading={loginMutation.isPending}
                             className="w-full"
                         >
-                            {loading ? 'Signing in...' : 'Sign In'}
+                            {loginMutation.isPending ? 'Signing in...' : 'Sign In'}
                         </Button>
                     </form>
 
@@ -271,10 +277,10 @@ export default function Login() {
                     
                     <div className="grid grid-cols-2 gap-6 w-full max-w-lg">
                         {[
-                            { icon: 'ðŸ¤–', title: 'AI-Powered Priority', desc: 'Smart ticket routing' },
-                            { icon: 'âš¡', title: 'Real-time Updates', desc: 'Stay in sync' },
-                            { icon: 'ðŸ“Š', title: 'Advanced Analytics', desc: 'Data-driven insights' },
-                            { icon: 'ðŸ›¡ï¸', title: '24/7 Support', desc: 'Always here for you' },
+                            { icon: '🤖', title: 'AI-Powered Priority', desc: 'Smart ticket routing' },
+                            { icon: '⚡', title: 'Real-time Updates', desc: 'Stay in sync' },
+                            { icon: '📊', title: 'Advanced Analytics', desc: 'Data-driven insights' },
+                            { icon: '🛡️', title: '24/7 Support', desc: 'Always here for you' },
                         ].map((feature, index) => (
                             <motion.div
                                 key={index}

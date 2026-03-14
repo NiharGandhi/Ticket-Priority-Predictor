@@ -1,12 +1,14 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Upload, X, FileText, Image, Sparkles, Clock, Tag, AlertTriangle, CheckCircle, Loader2, Send, Save } from 'lucide-react';
+import { Upload, X, FileText, Sparkles, Clock, Tag, Save, Send } from 'lucide-react';
 import Card from '../components/common/Card';
 import Badge from '../components/common/Badge';
 import Button from '../components/common/Button';
 import { useStore } from '../store/useStore';
+import { ticketsAPI } from '../services/api';
 import { cn, generateId } from '../lib/utils';
 import toast from 'react-hot-toast';
 
@@ -24,20 +26,36 @@ const similarTicketsData = [
 
 export default function CreateTicket() {
     const navigate = useNavigate();
-    const { createTicket, currentTeam } = useStore();
+    const queryClient = useQueryClient();
+    const { currentTeam } = useStore();
     const [files, setFiles] = useState([]);
     const [isDragging, setIsDragging] = useState(false);
-    const [submitting, setSubmitting] = useState(false);
     const [aiPrediction, setAiPrediction] = useState(null);
     const [draftSaved, setDraftSaved] = useState(false);
     const [showSimilar, setShowSimilar] = useState(false);
 
-    const { register, handleSubmit, watch, formState: { errors }, setValue } = useForm({
+    const { register, handleSubmit, watch, formState: { errors } } = useForm({
         defaultValues: { title: '', description: '', category: '', customerTier: '', tags: '' }
     });
 
     const watchTitle = watch('title');
     const watchDescription = watch('description');
+
+    const createTicketMutation = useMutation({
+        mutationFn: (data) => ticketsAPI.create(data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['tickets'] });
+            queryClient.invalidateQueries({ queryKey: ['stats'] });
+            toast.success('🎉 Ticket created successfully!', { duration: 4000, style: { fontWeight: 600 } });
+            navigate('/tickets');
+        },
+        onError: (err) => {
+            console.error(err);
+            toast.error(err.response?.data?.message || 'Failed to create ticket.');
+        }
+    });
+
+    const submitting = createTicketMutation.isPending;
 
     // Simulate AI prediction as user types
     useEffect(() => {
@@ -82,26 +100,16 @@ export default function CreateTicket() {
 
     const removeFile = (id) => setFiles(prev => prev.filter(f => f.id !== id));
 
-    const onSubmit = async (data) => {
-        setSubmitting(true);
-        try {
-            const payload = {
-                title: data.title,
-                description: data.description,
-                category: data.category || aiPrediction?.category,
-                customerTier: data.customerTier,
-                tags: data.tags ? data.tags.split(',').map(t => t.trim()) : [],
-                team: currentTeam?.id || undefined,
-            };
-            await createTicket(payload);
-            toast.success('🎉 Ticket created successfully!', { duration: 4000, style: { fontWeight: 600 } });
-            navigate('/tickets');
-        } catch (err) {
-            console.error(err);
-            toast.error('Failed to create ticket.');
-        } finally {
-            setSubmitting(false);
-        }
+    const onSubmit = (data) => {
+        const payload = {
+            title: data.title,
+            description: data.description,
+            category: data.category || aiPrediction?.category,
+            customerTier: data.customerTier,
+            tags: data.tags ? data.tags.split(',').map(t => t.trim()) : [],
+            team: currentTeam?.id || undefined,
+        };
+        createTicketMutation.mutate(payload);
     };
 
     const getPriorityBg = (p) => {

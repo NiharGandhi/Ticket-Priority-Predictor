@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { X, ChevronLeft, ChevronRight, Check, Users, Settings2, Eye, Palette } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useStore } from '../../store/useStore';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { usersAPI, teamsAPI } from '../../services/api';
 import { cn } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
@@ -20,19 +22,60 @@ const STRATEGIES = [
     { value: 'manual', label: 'Manual', desc: 'Manually assign each ticket' },
 ];
 
+const INITIAL_FORM_STATE = {
+    name: '', description: '', color: COLORS[0], department: DEPARTMENTS[0],
+    members: [], memberRoles: {},
+    sla: { critical: 4, high: 8, medium: 24, low: 72 },
+    workingHours: { start: '09:00', end: '18:00' },
+    assignmentStrategy: 'round-robin',
+};
+
 export default function CreateTeamModal({ isOpen, onClose }) {
-    const { teamMembers, addTeam } = useStore();
+    const queryClient = useQueryClient();
     const [step, setStep] = useState(0);
-    const [form, setForm] = useState({
-        name: '', description: '', color: COLORS[0], department: DEPARTMENTS[0],
-        members: [], memberRoles: {},
-        sla: { critical: 4, high: 8, medium: 24, low: 72 },
-        workingHours: { start: '09:00', end: '18:00' },
-        assignmentStrategy: 'round-robin',
-    });
+    const [form, setForm] = useState(INITIAL_FORM_STATE);
     const [memberSearch, setMemberSearch] = useState('');
 
-    const reset = () => { setStep(0); setForm({ name: '', description: '', color: COLORS[0], department: DEPARTMENTS[0], members: [], memberRoles: {}, sla: { critical: 4, high: 8, medium: 24, low: 72 }, workingHours: { start: '09:00', end: '18:00' }, assignmentStrategy: 'round-robin' }); };
+    const { data: usersResponse, isLoading: isLoadingUsers } = useQuery({
+        queryKey: ['users'],
+        queryFn: () => usersAPI.getAll().then(res => res.data.data),
+        enabled: isOpen && step === 1,
+    });
+    
+    const users = useMemo(() => {
+        if (!usersResponse?.users) return [];
+        return usersResponse.users.map(u => ({
+            id: u._id,
+            name: u.name,
+            email: u.email,
+            avatar: u.name.substring(0, 2).toUpperCase()
+        }));
+    }, [usersResponse]);
+
+    const filteredMembers = useMemo(() => {
+        return users.filter(m =>
+            m.name.toLowerCase().includes(memberSearch.toLowerCase()) || 
+            m.email.toLowerCase().includes(memberSearch.toLowerCase())
+        );
+    }, [users, memberSearch]);
+
+    const createTeamMutation = useMutation({
+        mutationFn: (data) => teamsAPI.create(data),
+        onSuccess: (res) => {
+            queryClient.invalidateQueries({ queryKey: ['teams'] });
+            toast.success(`Team "${form.name}" created successfully!`);
+            reset();
+            onClose();
+        },
+        onError: (err) => {
+            toast.error(err.message || 'Failed to create team');
+        }
+    });
+
+    const reset = () => { 
+        setStep(0); 
+        setForm(INITIAL_FORM_STATE); 
+    };
 
     const canNext = () => {
         if (step === 0) return form.name.trim().length > 0;
@@ -40,25 +83,19 @@ export default function CreateTeamModal({ isOpen, onClose }) {
     };
 
     const handleCreate = () => {
-        const newTeam = {
-            id: `team-${Date.now()}`,
+        const payload = {
             name: form.name.trim(),
-            initials: form.name.trim().split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2),
-            color: form.color,
             description: form.description,
             department: form.department,
+            color: form.color,
             members: form.members,
-            createdAt: new Date().toISOString(),
             settings: {
                 sla: form.sla,
                 workingHours: { ...form.workingHours, timezone: 'America/New_York' },
                 assignmentStrategy: form.assignmentStrategy,
-            },
+            }
         };
-        addTeam(newTeam);
-        toast.success(`Team "${newTeam.name}" created successfully!`);
-        reset();
-        onClose();
+        createTeamMutation.mutate(payload);
     };
 
     const toggleMember = (id) => {
@@ -67,10 +104,6 @@ export default function CreateTeamModal({ isOpen, onClose }) {
             members: f.members.includes(id) ? f.members.filter(m => m !== id) : [...f.members, id],
         }));
     };
-
-    const filteredMembers = teamMembers.filter(m =>
-        m.name.toLowerCase().includes(memberSearch.toLowerCase()) || m.email.toLowerCase().includes(memberSearch.toLowerCase())
-    );
 
     if (!isOpen) return null;
 
@@ -157,36 +190,42 @@ export default function CreateTeamModal({ isOpen, onClose }) {
                                         className="w-full px-4 py-2.5 border border-gray-300 dark:border-dark-border rounded-xl bg-white dark:bg-dark-bg text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
                                         placeholder="Search members..." />
                                     <div className="space-y-2 max-h-60 overflow-y-auto">
-                                        {filteredMembers.map(m => {
-                                            const selected = form.members.includes(m.id);
-                                            return (
-                                                <button key={m.id} onClick={() => toggleMember(m.id)}
-                                                    className={cn('w-full flex items-center space-x-3 p-3 rounded-xl border transition-all text-left',
-                                                        selected ? 'border-primary-400 bg-primary-50 dark:bg-primary-900/20 dark:border-primary-600' : 'border-gray-200 dark:border-dark-border hover:border-gray-300')}>
-                                                    <div className="w-10 h-10 bg-gradient-primary rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
-                                                        {m.avatar}
-                                                    </div>
-                                                    <div className="flex-1 min-w-0">
-                                                        <p className="text-sm font-medium text-gray-900 dark:text-white">{m.name}</p>
-                                                        <p className="text-xs text-gray-500">{m.email}</p>
-                                                    </div>
-                                                    {selected && (
-                                                        <select value={form.memberRoles[m.id] || 'Agent'} onClick={e => e.stopPropagation()}
-                                                            onChange={e => setForm(f => ({ ...f, memberRoles: { ...f.memberRoles, [m.id]: e.target.value } }))}
-                                                            className="text-xs px-2 py-1 rounded-md border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-bg text-gray-700 dark:text-gray-300">
-                                                            <option value="Admin">Admin</option>
-                                                            <option value="Manager">Manager</option>
-                                                            <option value="Agent">Agent</option>
-                                                            <option value="Viewer">Viewer</option>
-                                                        </select>
-                                                    )}
-                                                    <div className={cn('w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0',
-                                                        selected ? 'border-primary-600 bg-primary-600' : 'border-gray-300 dark:border-dark-border')}>
-                                                        {selected && <Check className="w-3 h-3 text-white" />}
-                                                    </div>
-                                                </button>
-                                            );
-                                        })}
+                                        {isLoadingUsers ? (
+                                            <p className="text-sm text-gray-500 text-center py-4">Loading users...</p>
+                                        ) : filteredMembers.length === 0 ? (
+                                            <p className="text-sm text-gray-500 text-center py-4">No users found.</p>
+                                        ) : (
+                                            filteredMembers.map(m => {
+                                                const selected = form.members.includes(m.id);
+                                                return (
+                                                    <button key={m.id} onClick={() => toggleMember(m.id)}
+                                                        className={cn('w-full flex items-center space-x-3 p-3 rounded-xl border transition-all text-left',
+                                                            selected ? 'border-primary-400 bg-primary-50 dark:bg-primary-900/20 dark:border-primary-600' : 'border-gray-200 dark:border-dark-border hover:border-gray-300')}>
+                                                        <div className="w-10 h-10 bg-gradient-primary rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
+                                                            {m.avatar}
+                                                        </div>
+                                                        <div className="flex-1 min-w-0">
+                                                            <p className="text-sm font-medium text-gray-900 dark:text-white">{m.name}</p>
+                                                            <p className="text-xs text-gray-500">{m.email}</p>
+                                                        </div>
+                                                        {selected && (
+                                                            <select value={form.memberRoles[m.id] || 'Agent'} onClick={e => e.stopPropagation()}
+                                                                onChange={e => setForm(f => ({ ...f, memberRoles: { ...f.memberRoles, [m.id]: e.target.value } }))}
+                                                                className="text-xs px-2 py-1 rounded-md border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-bg text-gray-700 dark:text-gray-300">
+                                                                <option value="Admin">Admin</option>
+                                                                <option value="Manager">Manager</option>
+                                                                <option value="Agent">Agent</option>
+                                                                <option value="Viewer">Viewer</option>
+                                                            </select>
+                                                        )}
+                                                        <div className={cn('w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0',
+                                                            selected ? 'border-primary-600 bg-primary-600' : 'border-gray-300 dark:border-dark-border')}>
+                                                            {selected && <Check className="w-3 h-3 text-white" />}
+                                                        </div>
+                                                    </button>
+                                                );
+                                            })
+                                        )}
                                     </div>
                                     <p className="text-xs text-gray-500">{form.members.length} member(s) selected</p>
                                 </div>
@@ -289,6 +328,7 @@ export default function CreateTeamModal({ isOpen, onClose }) {
                     <button
                         onClick={() => step > 0 ? setStep(step - 1) : (reset(), onClose())}
                         className="flex items-center space-x-1.5 px-4 py-2 rounded-lg text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-dark-border transition-colors"
+                        disabled={createTeamMutation.isPending}
                     >
                         <ChevronLeft className="w-4 h-4" />
                         <span>{step === 0 ? 'Cancel' : 'Back'}</span>
@@ -296,7 +336,7 @@ export default function CreateTeamModal({ isOpen, onClose }) {
                     {step < STEPS.length - 1 ? (
                         <button
                             onClick={() => canNext() && setStep(step + 1)}
-                            disabled={!canNext()}
+                            disabled={!canNext() || createTeamMutation.isPending}
                             className={cn(
                                 'flex items-center space-x-1.5 px-5 py-2 rounded-lg text-sm font-medium text-white transition-all',
                                 canNext() ? 'bg-primary-600 hover:bg-primary-700' : 'bg-gray-300 cursor-not-allowed'
@@ -308,10 +348,14 @@ export default function CreateTeamModal({ isOpen, onClose }) {
                     ) : (
                         <button
                             onClick={handleCreate}
-                            className="flex items-center space-x-1.5 px-5 py-2 rounded-lg text-sm font-bold text-white bg-success-600 hover:bg-success-700 transition-all"
+                            disabled={createTeamMutation.isPending}
+                            className={cn(
+                                "flex items-center space-x-1.5 px-5 py-2 rounded-lg text-sm font-bold text-white transition-all",
+                                createTeamMutation.isPending ? "bg-success-400 cursor-wait" : "bg-success-600 hover:bg-success-700"
+                            )}
                         >
                             <Check className="w-4 h-4" />
-                            <span>Create Team</span>
+                            <span>{createTeamMutation.isPending ? 'Creating...' : 'Create Team'}</span>
                         </button>
                     )}
                 </div>

@@ -1,19 +1,41 @@
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
+import { useQuery } from '@tanstack/react-query';
 import Card from '../common/Card';
-import { mockAnalyticsData } from '../../data/mockData';
+import { useStore } from '../../store/useStore';
+import { ticketsAPI } from '../../services/api';
+import LoadingSkeleton from '../common/LoadingSkeleton';
 
 export default function PriorityChart() {
-    const data = mockAnalyticsData.priorityDistribution;
+    const { currentTeam } = useStore();
+
+    const { data: statsResponse, isLoading } = useQuery({
+        queryKey: ['stats', currentTeam?.id],
+        queryFn: () => ticketsAPI.getStats().then(res => res.data.data),
+    });
+
+    const stats = statsResponse || {};
+    const colors = { Critical: '#ef4444', High: '#f97316', Medium: '#eab308', Low: '#22c55e' };
+    
+    const data = stats.byPriority?.map(item => ({
+        name: item._id,
+        value: item.count,
+        color: colors[item._id] || '#6b7280'
+    })) || [];
+
+    if (isLoading) {
+        return <Card className="p-6 h-[360px]"><LoadingSkeleton count={3} /></Card>;
+    }
 
     const CustomTooltip = ({ active, payload }) => {
         if (active && payload && payload.length) {
+            const totalValues = data.reduce((sum, item) => sum + item.value, 0);
             return (
                 <div className="bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border rounded-lg p-3 shadow-lg">
                     <p className="text-sm font-medium text-gray-900 dark:text-white">
                         {payload[0].name}
                     </p>
                     <p className="text-sm text-gray-600 dark:text-gray-400">
-                        {payload[0].value} tickets ({((payload[0].value / data.reduce((sum, item) => sum + item.value, 0)) * 100).toFixed(1)}%)
+                        {payload[0].value} tickets ({totalValues > 0 ? ((payload[0].value / totalValues) * 100).toFixed(1) : 0}%)
                     </p>
                 </div>
             );
@@ -37,7 +59,7 @@ export default function PriorityChart() {
                                 {entry.value}
                             </p>
                             <p className="text-xs text-gray-500 dark:text-gray-400">
-                                {data[index].value} ({((data[index].value / total) * 100).toFixed(1)}%)
+                                {data[index].value} ({total > 0 ? ((data[index].value / total) * 100).toFixed(1) : 0}%)
                             </p>
                         </div>
                     </div>
@@ -52,27 +74,33 @@ export default function PriorityChart() {
                 Priority Distribution
             </h3>
 
-            <ResponsiveContainer width="100%" height={280}>
-                <PieChart>
-                    <Pie
-                        data={data}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={60}
-                        outerRadius={100}
-                        paddingAngle={5}
-                        dataKey="value"
-                        animationBegin={0}
-                        animationDuration={800}
-                    >
-                        {data.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={entry.color} />
-                        ))}
-                    </Pie>
-                    <Tooltip content={<CustomTooltip />} />
-                    <Legend content={<CustomLegend />} />
-                </PieChart>
-            </ResponsiveContainer>
+            {data.length > 0 ? (
+                <ResponsiveContainer width="100%" height={280}>
+                    <PieChart>
+                        <Pie
+                            data={data}
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={60}
+                            outerRadius={100}
+                            paddingAngle={5}
+                            dataKey="value"
+                            animationBegin={0}
+                            animationDuration={800}
+                        >
+                            {data.map((entry, index) => (
+                                <Cell key={`cell-${index}`} fill={entry.color} />
+                            ))}
+                        </Pie>
+                        <Tooltip content={<CustomTooltip />} />
+                        <Legend content={<CustomLegend />} />
+                    </PieChart>
+                </ResponsiveContainer>
+            ) : (
+                <div className="flex items-center justify-center h-[280px] text-gray-500">
+                    No data available
+                </div>
+            )}
         </Card>
     );
 }
