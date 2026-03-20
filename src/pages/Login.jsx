@@ -6,31 +6,36 @@ import { useForm } from 'react-hook-form';
 import toast from 'react-hot-toast';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import Button from '../components/common/Button';
-import Input from '../components/common/Input';
 import { authAPI, setAuthToken } from '../services/api';
 
 export default function Login() {
     const navigate = useNavigate();
     const queryClient = useQueryClient();
     const [showPassword, setShowPassword] = useState(false);
-    const [rememberMe, setRememberMe] = useState(false);
+    const [rememberMe, setRememberMe] = useState(true);
 
     const {
         register,
         handleSubmit,
+        setError,
         formState: { errors },
-    } = useForm();
+    } = useForm({ mode: 'onSubmit' });
 
     const loginMutation = useMutation({
         mutationFn: authAPI.login,
         onSuccess: (res) => {
             const token = res.data.data.token;
-            setAuthToken(token);
-            toast.success('Login successful!');
+            setAuthToken(token, rememberMe);
+            toast.success('Welcome back!');
             queryClient.invalidateQueries({ queryKey: ['me'] });
             navigate('/');
         },
         onError: (err) => {
+            if (err.fieldErrors) {
+                Object.entries(err.fieldErrors).forEach(([field, msg]) => {
+                    setError(field, { type: 'server', message: msg });
+                });
+            }
             toast.error(err.message || 'Login failed');
         }
     });
@@ -40,8 +45,7 @@ export default function Login() {
     };
 
     const handleSocialLogin = (provider) => {
-        toast.success(`Logging in with ${provider}...`);
-        setTimeout(() => navigate('/'), 1000);
+        toast(`${provider} login is coming soon!`, { icon: 'ℹ️' });
     };
 
     return (
@@ -124,7 +128,7 @@ export default function Login() {
                                             message: 'Invalid email address',
                                         },
                                     })}
-                                    className="w-full pl-10 pr-4 py-3 border border-gray-300 dark:border-dark-border rounded-lg bg-white dark:bg-dark-surface text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all"
+                                    className={`w-full pl-10 pr-4 py-3 border ${errors.email ? 'border-danger-500' : 'border-gray-300 dark:border-dark-border'} rounded-lg bg-white dark:bg-dark-surface text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all`}
                                 />
                             </div>
                             {errors.email && (
@@ -141,12 +145,8 @@ export default function Login() {
                                     placeholder="Password"
                                     {...register('password', {
                                         required: 'Password is required',
-                                        minLength: {
-                                            value: 6,
-                                            message: 'Password must be at least 6 characters',
-                                        },
                                     })}
-                                    className="w-full pl-10 pr-12 py-3 border border-gray-300 dark:border-dark-border rounded-lg bg-white dark:bg-dark-surface text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all"
+                                    className={`w-full pl-10 pr-12 py-3 border ${errors.password ? 'border-danger-500' : 'border-gray-300 dark:border-dark-border'} rounded-lg bg-white dark:bg-dark-surface text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all`}
                                 />
                                 <button
                                     type="button"

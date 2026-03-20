@@ -1,11 +1,11 @@
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { authAPI, setAuthToken } from '../../services/api';
+import { authAPI, setAuthToken, getStoredToken } from '../../services/api';
 import LoadingSkeleton from '../common/LoadingSkeleton';
 
 export default function ProtectedRoute({ children, roles = [] }) {
   const location = useLocation();
-  const token = localStorage.getItem('token');
+  const token = getStoredToken();
 
   // Set token on the api instance immediately if available
   if (token) {

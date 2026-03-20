@@ -6,29 +6,53 @@ const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api'
 
 const api = axios.create({ baseURL: API_URL, withCredentials: true });
 
-export const setAuthToken = (token) => {
+/**
+ * Store token in localStorage (remember me) or sessionStorage (session only).
+ * Call with `null` to clear.
+ */
+export const setAuthToken = (token, remember = true) => {
   if (token) {
     api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-    localStorage.setItem('token', token);
+    if (remember) {
+      localStorage.setItem('token', token);
+    } else {
+      sessionStorage.setItem('token', token);
+    }
   } else {
     delete api.defaults.headers.common['Authorization'];
     localStorage.removeItem('token');
+    sessionStorage.removeItem('token');
   }
 };
 
-// Response interceptor for basic error handling
+/**
+ * Retrieve a stored token from either storage.
+ */
+export const getStoredToken = () => {
+  return localStorage.getItem('token') || sessionStorage.getItem('token');
+};
+
+// Response interceptor for error handling
 api.interceptors.response.use(
   (res) => res,
   (err) => {
-    const message = err.response?.data?.message || err.message;
+    const data = err.response?.data || {};
+    const message = data.message || err.message;
+
     if (err.response?.status === 401) {
       localStorage.removeItem('token');
-      // Simple redirect for unauthenticated responses not triggered within auth components
+      sessionStorage.removeItem('token');
       if (typeof window !== 'undefined' && window.location.pathname !== '/login' && window.location.pathname !== '/signup') {
         window.location.href = '/login';
       }
     }
-    return Promise.reject({ status: err.response?.status, message, data: err.response?.data });
+
+    return Promise.reject({
+      status: err.response?.status,
+      message,
+      fieldErrors: data.fieldErrors || null,
+      data,
+    });
   }
 );
 

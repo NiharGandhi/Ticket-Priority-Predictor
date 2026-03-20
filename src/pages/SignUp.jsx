@@ -1,12 +1,49 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Mail, Lock, Eye, EyeOff, User, Chrome, Github } from 'lucide-react';
+import { Mail, Lock, Eye, EyeOff, User, Chrome, Github, Check, X } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import toast from 'react-hot-toast';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import Button from '../components/common/Button';
 import { authAPI, setAuthToken } from '../services/api';
+
+const PASSWORD_RULES = [
+    { key: 'length', label: 'At least 8 characters', test: (v) => v && v.length >= 8 },
+    { key: 'upper', label: 'One uppercase letter', test: (v) => /[A-Z]/.test(v || '') },
+    { key: 'number', label: 'One number', test: (v) => /[0-9]/.test(v || '') },
+];
+
+function PasswordStrength({ password }) {
+    const passed = PASSWORD_RULES.filter((r) => r.test(password)).length;
+    const total = PASSWORD_RULES.length;
+    const pct = (passed / total) * 100;
+    const color = pct < 50 ? 'bg-danger-500' : pct < 100 ? 'bg-warning-500' : 'bg-success-500';
+
+    return (
+        <div className="mt-2 space-y-2">
+            <div className="h-1.5 rounded-full bg-gray-200 dark:bg-dark-border overflow-hidden">
+                <motion.div
+                    className={`h-full rounded-full ${color}`}
+                    initial={{ width: 0 }}
+                    animate={{ width: `${pct}%` }}
+                    transition={{ duration: 0.3 }}
+                />
+            </div>
+            <div className="space-y-1">
+                {PASSWORD_RULES.map((rule) => {
+                    const ok = rule.test(password);
+                    return (
+                        <div key={rule.key} className={`flex items-center gap-1.5 text-xs ${ok ? 'text-success-600' : 'text-gray-400'}`}>
+                            {ok ? <Check className="w-3 h-3" /> : <X className="w-3 h-3" />}
+                            {rule.label}
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+}
 
 export default function SignUp() {
     const navigate = useNavigate();
@@ -19,8 +56,9 @@ export default function SignUp() {
         register,
         handleSubmit,
         watch,
+        setError,
         formState: { errors },
-    } = useForm();
+    } = useForm({ mode: 'onSubmit' });
 
     const password = watch('password');
 
@@ -28,12 +66,18 @@ export default function SignUp() {
         mutationFn: (data) => authAPI.register({ name: data.name, email: data.email, password: data.password }),
         onSuccess: (res) => {
             const token = res.data.data.token;
-            setAuthToken(token);
-            toast.success('Account created and logged in');
+            setAuthToken(token, true);
+            toast.success('Account created — welcome!');
             queryClient.invalidateQueries({ queryKey: ['me'] });
             navigate('/');
         },
         onError: (err) => {
+            // Map backend field-level errors to react-hook-form
+            if (err.fieldErrors) {
+                Object.entries(err.fieldErrors).forEach(([field, msg]) => {
+                    setError(field, { type: 'server', message: msg });
+                });
+            }
             toast.error(err.message || 'Signup failed');
         }
     });
@@ -47,8 +91,7 @@ export default function SignUp() {
     };
 
     const handleSocialSignUp = (provider) => {
-        toast.success(`Signing up with ${provider}...`);
-        setTimeout(() => navigate('/'), 1000);
+        toast(`${provider} sign-up is coming soon!`, { icon: 'ℹ️' });
     };
 
     return (
@@ -125,7 +168,7 @@ export default function SignUp() {
                                     type="text"
                                     placeholder="Full name"
                                     {...register('name', { required: 'Name is required' })}
-                                    className="w-full pl-10 pr-4 py-3 border border-gray-300 dark:border-dark-border rounded-lg bg-white dark:bg-dark-surface text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all"
+                                    className={`w-full pl-10 pr-4 py-3 border ${errors.name ? 'border-danger-500' : 'border-gray-300 dark:border-dark-border'} rounded-lg bg-white dark:bg-dark-surface text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all`}
                                 />
                             </div>
                             {errors.name && (
@@ -147,7 +190,7 @@ export default function SignUp() {
                                             message: 'Invalid email address',
                                         },
                                     })}
-                                    className="w-full pl-10 pr-4 py-3 border border-gray-300 dark:border-dark-border rounded-lg bg-white dark:bg-dark-surface text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all"
+                                    className={`w-full pl-10 pr-4 py-3 border ${errors.email ? 'border-danger-500' : 'border-gray-300 dark:border-dark-border'} rounded-lg bg-white dark:bg-dark-surface text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all`}
                                 />
                             </div>
                             {errors.email && (
@@ -168,8 +211,12 @@ export default function SignUp() {
                                             value: 8,
                                             message: 'Password must be at least 8 characters',
                                         },
+                                        validate: {
+                                            hasUpper: (v) => /[A-Z]/.test(v) || 'Must contain an uppercase letter',
+                                            hasNumber: (v) => /[0-9]/.test(v) || 'Must contain a number',
+                                        },
                                     })}
-                                    className="w-full pl-10 pr-12 py-3 border border-gray-300 dark:border-dark-border rounded-lg bg-white dark:bg-dark-surface text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all"
+                                    className={`w-full pl-10 pr-12 py-3 border ${errors.password ? 'border-danger-500' : 'border-gray-300 dark:border-dark-border'} rounded-lg bg-white dark:bg-dark-surface text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all`}
                                 />
                                 <button
                                     type="button"
@@ -182,6 +229,7 @@ export default function SignUp() {
                             {errors.password && (
                                 <p className="mt-1 text-sm text-danger-600">{errors.password.message}</p>
                             )}
+                            <PasswordStrength password={password} />
                         </div>
 
                         
@@ -196,7 +244,7 @@ export default function SignUp() {
                                         validate: (value) =>
                                             value === password || 'Passwords do not match',
                                     })}
-                                    className="w-full pl-10 pr-12 py-3 border border-gray-300 dark:border-dark-border rounded-lg bg-white dark:bg-dark-surface text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all"
+                                    className={`w-full pl-10 pr-12 py-3 border ${errors.confirmPassword ? 'border-danger-500' : 'border-gray-300 dark:border-dark-border'} rounded-lg bg-white dark:bg-dark-surface text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all`}
                                 />
                                 <button
                                     type="button"
