@@ -14,10 +14,12 @@ export default function TeamSelector({ onCreateTeam }) {
     // Fetch teams using React Query
     const { data: teamsRes, isLoading } = useQuery({
         queryKey: ['teams'],
-        queryFn: teamsAPI.getAll
+        queryFn: teamsAPI.getAll,
+        retry: false,
     });
     
-    const teams = teamsRes?.data || [];
+    // Extract the actual teams array — API returns { data: { success, data: [...] } }
+    const teams = teamsRes?.data?.data || [];
 
     const [isOpen, setIsOpen] = useState(false);
     const [search, setSearch] = useState('');
@@ -25,9 +27,9 @@ export default function TeamSelector({ onCreateTeam }) {
     const dropdownRef = useRef(null);
     const searchRef = useRef(null);
 
-    const filtered = teams.filter(t =>
-        t.name.toLowerCase().includes(search.toLowerCase())
-    );
+    const filtered = Array.isArray(teams) ? teams.filter(t =>
+        t.name?.toLowerCase().includes(search.toLowerCase())
+    ) : [];
 
     useEffect(() => {
         function handleClickOutside(e) {
@@ -76,7 +78,12 @@ export default function TeamSelector({ onCreateTeam }) {
 
     const handleSelectTeam = (team) => {
         const teamId = team._id || team.id;
-        setCurrentTeam({ id: teamId, name: team.name, color: team.color, initials: team.name.substring(0, 2).toUpperCase() });
+        if (!teamId) {
+            // "All Teams" selected
+            setCurrentTeam(null);
+        } else {
+            setCurrentTeam({ id: teamId, name: team.name, color: team.color, initials: team.name.substring(0, 2).toUpperCase() });
+        }
         setIsOpen(false);
         setSearch('');
     };
@@ -96,7 +103,7 @@ export default function TeamSelector({ onCreateTeam }) {
                     className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
                     style={{ backgroundColor: currentTeam?.color || '#667eea' }}
                 >
-                    {currentTeam?.initials || (currentTeam?.name ? currentTeam.name.substring(0,2).toUpperCase() : '??')}
+                    {currentTeam?.initials || (currentTeam?.name ? currentTeam.name.substring(0,2).toUpperCase() : 'AL')}
                 </div>
                 <span className="text-sm font-medium text-gray-900 dark:text-white hidden sm:block max-w-[100px] truncate">
                     {currentTeam?.name || 'All Teams'}
@@ -130,63 +137,62 @@ export default function TeamSelector({ onCreateTeam }) {
 
                         {/* Team List */}
                         <div className="max-h-64 overflow-y-auto p-1">
+                            {/* Always show "All Teams" option */}
+                            <button
+                                onClick={() => handleSelectTeam({ id: null, name: 'All Teams', color: '#667eea' })}
+                                className={cn(
+                                    'w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg transition-colors text-left',
+                                    !currentTeam?.id ? 'bg-primary-50 dark:bg-primary-900/20' : 'hover:bg-gray-50 dark:hover:bg-dark-border/50'
+                                )}
+                            >
+                                <div className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0 bg-primary-500">
+                                    AL
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-medium text-gray-900 dark:text-white truncate">All Teams</p>
+                                </div>
+                                {!currentTeam?.id && <Check className="w-4 h-4 text-primary-600 flex-shrink-0" />}
+                            </button>
+
                             {isLoading ? (
                                 <p className="text-sm text-gray-500 text-center py-4">Loading teams...</p>
                             ) : filtered.length === 0 ? (
                                 <p className="text-sm text-gray-500 text-center py-4">No teams found</p>
                             ) : (
-                                <>
-                                    <button
-                                        onClick={() => handleSelectTeam({ id: null, name: 'All Teams', color: '#667eea' })}
-                                        className={cn(
-                                            'w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg transition-colors text-left',
-                                            !currentTeam?.id ? 'bg-primary-50 dark:bg-primary-900/20' : 'hover:bg-gray-50 dark:hover:bg-dark-border/50'
-                                        )}
-                                    >
-                                        <div className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0 bg-primary-500">
-                                            AL
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                            <p className="text-sm font-medium text-gray-900 dark:text-white truncate">All Teams</p>
-                                        </div>
-                                        {!currentTeam?.id && <Check className="w-4 h-4 text-primary-600 flex-shrink-0" />}
-                                    </button>
+                                filtered.map((team, index) => {
+                                    const teamId = team._id || team.id;
+                                    const isSelected = currentTeam?.id === teamId;
+                                    const isFocused = focusIndex === index;
+                                    const initials = team.name ? team.name.substring(0, 2).toUpperCase() : '??';
+                                    const memberCount = team.members?.length || 0;
                                     
-                                    {filtered.map((team, index) => {
-                                        const teamId = team._id || team.id;
-                                        const isSelected = currentTeam?.id === teamId;
-                                        const isFocused = focusIndex === index;
-                                        const initials = team.name ? team.name.substring(0, 2).toUpperCase() : '??';
-                                        const memberCount = team.members?.length || 0;
-                                        
-                                        return (
-                                            <button
-                                                key={teamId}
-                                                onClick={() => handleSelectTeam(team)}
-                                                className={cn(
-                                                    'w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg transition-colors text-left',
-                                                    isSelected ? 'bg-primary-50 dark:bg-primary-900/20' : '',
-                                                    isFocused && !isSelected ? 'bg-gray-50 dark:bg-dark-border/50' : '',
-                                                    !isSelected && !isFocused ? 'hover:bg-gray-50 dark:hover:bg-dark-border/50' : ''
-                                                )}
+                                    return (
+                                        <button
+                                            key={teamId}
+                                            onClick={() => handleSelectTeam(team)}
+                                            className={cn(
+                                                'w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg transition-colors text-left',
+                                                isSelected ? 'bg-primary-50 dark:bg-primary-900/20' : '',
+                                                isFocused && !isSelected ? 'bg-gray-50 dark:bg-dark-border/50' : '',
+                                                !isSelected && !isFocused ? 'hover:bg-gray-50 dark:hover:bg-dark-border/50' : ''
+                                            )}
+                                        >
+                                            <div
+                                                className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+                                                style={{ backgroundColor: team.color || '#667eea' }}
                                             >
-                                                <div
-                                                    className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-                                                    style={{ backgroundColor: team.color || '#667eea' }}
-                                                >
-                                                    {initials}
-                                                </div>
-                                                <div className="flex-1 min-w-0">
-                                                    <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{team.name}</p>
-                                                    <p className="text-xs text-gray-500 dark:text-gray-400">
-                                                        {memberCount} members
-                                                    </p>
-                                                </div>
-                                                {isSelected && <Check className="w-4 h-4 text-primary-600 flex-shrink-0" />}
-                                            </button>
-                                        );
-                                    })}
-                                </>
+                                                {initials}
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{team.name}</p>
+                                                <p className="text-xs text-gray-500 dark:text-gray-400">
+                                                    {memberCount} members
+                                                </p>
+                                            </div>
+                                            {isSelected && <Check className="w-4 h-4 text-primary-600 flex-shrink-0" />}
+                                        </button>
+                                    );
+                                })
                             )}
                         </div>
 

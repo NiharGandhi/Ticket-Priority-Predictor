@@ -1,6 +1,6 @@
-﻿import { cn } from '../../lib/utils';
+import { cn } from '../../lib/utils';
 
-export default function LoadingSkeleton({ className = '', variant = 'text' }) {
+export default function LoadingSkeleton({ className = '', variant = 'text', count = 1 }) {
     const variants = {
         text: 'h-4 w-full rounded',
         title: 'h-6 w-3/4 rounded',
@@ -9,16 +9,26 @@ export default function LoadingSkeleton({ className = '', variant = 'text' }) {
         button: 'h-10 w-24 rounded-lg',
     };
 
+    const items = Array.from({ length: count }, (_, i) => i);
+
     return (
-        <div className={cn(
-            'animate-pulse bg-gray-200 dark:bg-dark-border relative overflow-hidden',
-            variants[variant],
-            className
-        )}>
-            <div className="absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-white/20 to-transparent" />
+        <div className="space-y-3">
+            {items.map((i) => (
+                <div
+                    key={i}
+                    className={cn(
+                        'animate-pulse bg-gray-200 dark:bg-dark-border relative overflow-hidden',
+                        variants[variant],
+                        className
+                    )}
+                >
+                    <div className="absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-white/20 to-transparent" />
+                </div>
+            ))}
         </div>
     );
 }
+
 export function SkeletonCard() {
     return (
         <div className="bg-white dark:bg-dark-surface rounded-xl p-6 shadow-soft">

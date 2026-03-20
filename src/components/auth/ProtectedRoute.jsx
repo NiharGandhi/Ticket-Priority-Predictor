@@ -20,6 +20,7 @@ export default function ProtectedRoute({ children, roles = [] }) {
     },
     enabled: !!token,
     retry: false,
+    staleTime: 5 * 60 * 1000, // cache for 5 min to avoid repeated calls
   });
 
   if (!token) {
@@ -27,10 +28,19 @@ export default function ProtectedRoute({ children, roles = [] }) {
   }
 
   if (isLoading) {
-    return <div className="p-6 h-screen w-full flex items-center justify-center"><LoadingSkeleton /></div>;
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-dark-bg">
+        <div className="text-center">
+          <div className="w-10 h-10 border-4 border-primary-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">Loading your workspace...</p>
+        </div>
+      </div>
+    );
   }
 
   if (isError || !userResponse) {
+    // Only clear token and redirect if the error is actually 401 (unauthorized)
+    // For other errors (network, 500, etc.), show error message instead of redirect loop
     setAuthToken(null);
     return <Navigate to="/login" replace state={{ from: location }} />;
   }

@@ -13,14 +13,11 @@ import LoadingSkeleton from '../components/common/LoadingSkeleton';
 export default function Dashboard() {
     const { currentTeam } = useStore();
 
-    const { data: statsResponse, isLoading } = useQuery({
+    const { data: statsResponse, isLoading, isError } = useQuery({
         queryKey: ['stats', currentTeam?.id],
         queryFn: () => ticketsAPI.getStats().then(res => res.data.data),
+        retry: 1,
     });
-
-    if (isLoading) {
-        return <LoadingSkeleton count={4} />;
-    }
 
     const stats = statsResponse || {};
     const totalTickets = stats.total || 0;
@@ -40,14 +37,32 @@ export default function Dashboard() {
             </div>
 
             {/* Stat Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <StatCard title="Total Tickets" value={totalTickets} icon={Inbox} gradient="bg-gradient-primary" trend="up" trendValue="12%" delay={0} />
-                <StatCard title="Critical Priority" value={criticalTickets} icon={AlertTriangle} gradient="bg-gradient-danger" trend="down" trendValue="8%" delay={0.1} />
-                <StatCard title="Resolved Today" value={resolvedToday} icon={CheckCircle} gradient="bg-gradient-success" trend="up" trendValue="24%" delay={0.2} />
-                <StatCard title="Avg Response Time" value={avgResponseTime} icon={Clock} gradient="bg-gradient-secondary" trend="down" trendValue="15%" delay={0.3} />
-            </div>
+            {isLoading ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                    {[0, 1, 2, 3].map(i => (
+                        <div key={i} className="bg-white dark:bg-dark-surface rounded-xl p-6 shadow-soft">
+                            <LoadingSkeleton variant="text" className="mb-3" />
+                            <LoadingSkeleton variant="title" className="mb-2" />
+                            <LoadingSkeleton variant="text" className="w-1/2" />
+                        </div>
+                    ))}
+                </div>
+            ) : isError ? (
+                <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-6 text-center">
+                    <AlertTriangle className="w-8 h-8 text-amber-500 mx-auto mb-2" />
+                    <p className="text-amber-700 dark:text-amber-300 font-medium">Couldn't load stats</p>
+                    <p className="text-amber-600 dark:text-amber-400 text-sm mt-1">Make sure the backend server is running on port 5000</p>
+                </div>
+            ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                    <StatCard title="Total Tickets" value={totalTickets} icon={Inbox} gradient="bg-gradient-primary" trend="up" trendValue="12%" delay={0} />
+                    <StatCard title="Critical Priority" value={criticalTickets} icon={AlertTriangle} gradient="bg-gradient-danger" trend="down" trendValue="8%" delay={0.1} />
+                    <StatCard title="Resolved Today" value={resolvedToday} icon={CheckCircle} gradient="bg-gradient-success" trend="up" trendValue="24%" delay={0.2} />
+                    <StatCard title="Avg Response Time" value={avgResponseTime} icon={Clock} gradient="bg-gradient-secondary" trend="down" trendValue="15%" delay={0.3} />
+                </div>
+            )}
 
-            {/* Quick Actions */}
+            {/* Quick Actions — always visible */}
             <QuickActions />
 
             {/* Trending Carousel */}

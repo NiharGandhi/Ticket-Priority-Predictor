@@ -55,6 +55,13 @@ export default function Team() {
     const [modalOpen, setModalOpen] = useState(false);
     const [formData, setFormData] = useState({ userId: '', role: 'member' });
 
+    // Fetch all teams (for the all-teams list view)
+    const { data: allTeamsRes, isLoading: allTeamsLoading } = useQuery({
+        queryKey: ['teams'],
+        queryFn: teamsAPI.getAll,
+    });
+    const allTeams = allTeamsRes?.data?.data || [];
+
     // Fetch team details
     const { data: teamRes, isLoading: teamLoading } = useQuery({
         queryKey: ['team', currentTeam?.id],
@@ -62,7 +69,7 @@ export default function Team() {
         enabled: !!currentTeam?.id
     });
 
-    const team = teamRes?.data;
+    const team = teamRes?.data?.data || null;
     const teamMembers = team?.members || [];
 
     // Fetch team tickets for analytics
@@ -72,14 +79,14 @@ export default function Team() {
         enabled: !!currentTeam?.id
     });
 
-    const teamTickets = ticketsRes?.data?.tickets || [];
+    const teamTickets = ticketsRes?.data?.data?.tickets || [];
 
     // Fetch all users for "Add Member" dropdown
     const { data: usersRes } = useQuery({
         queryKey: ['users'],
         queryFn: usersAPI.getAll,
     });
-    const allUsers = usersRes?.data || [];
+    const allUsers = usersRes?.data?.data || [];
     // Filter out users already in the team
     const availableUsers = allUsers.filter(u => !teamMembers.some(m => m.user?._id === u._id));
 
@@ -173,9 +180,45 @@ export default function Team() {
 
     if (!currentTeam || !team) {
         return (
-            <div className="flex flex-col items-center justify-center h-96 space-y-4">
-                <Users className="w-12 h-12 text-gray-400" />
-                <p className="text-gray-500">Please select a team from the sidebar to manage it.</p>
+            <div className="space-y-6">
+                <div>
+                    <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">Team Management</h1>
+                    <p className="text-gray-600 dark:text-gray-400">Select a team to manage or create a new one.</p>
+                </div>
+                {allTeamsLoading ? (
+                    <div className="flex justify-center py-12"><Loader2 className="w-8 h-8 text-primary-500 animate-spin" /></div>
+                ) : allTeams.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-64 space-y-4">
+                        <Users className="w-12 h-12 text-gray-400" />
+                        <p className="text-gray-500">No teams created yet.</p>
+                        <p className="text-sm text-gray-400">Create a team from the top bar to get started.</p>
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {allTeams.map((t, i) => {
+                            const tid = t._id || t.id;
+                            return (
+                                <motion.div key={tid} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.08 }}>
+                                    <Card clickable onClick={() => {
+                                        const { setCurrentTeam } = useStore.getState();
+                                        setCurrentTeam({ id: tid, name: t.name, color: t.color, initials: (t.name || '').substring(0,2).toUpperCase() });
+                                    }} className="p-6 hover:shadow-strong transition-all">
+                                        <div className="flex items-center space-x-4 mb-4">
+                                            <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white font-bold text-lg" style={{ backgroundColor: t.color || '#667eea' }}>
+                                                {t.initials || (t.name || '').substring(0,2).toUpperCase()}
+                                            </div>
+                                            <div>
+                                                <h3 className="text-lg font-bold text-gray-900 dark:text-white">{t.name}</h3>
+                                                <p className="text-sm text-gray-500">{t.members?.length || 0} members</p>
+                                            </div>
+                                        </div>
+                                        {t.description && <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2">{t.description}</p>}
+                                    </Card>
+                                </motion.div>
+                            );
+                        })}
+                    </div>
+                )}
             </div>
         );
     }

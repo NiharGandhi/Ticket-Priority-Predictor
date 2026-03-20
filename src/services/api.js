@@ -40,11 +40,12 @@ api.interceptors.response.use(
     const message = data.message || err.message;
 
     if (err.response?.status === 401) {
+      // Clear stored tokens so ProtectedRoute redirects to /login on next render.
+      // Do NOT hard-redirect with window.location — that causes a full page reload,
+      // loses React state, and can loop with ProtectedRoute's own 401 handling.
       localStorage.removeItem('token');
       sessionStorage.removeItem('token');
-      if (typeof window !== 'undefined' && window.location.pathname !== '/login' && window.location.pathname !== '/signup') {
-        window.location.href = '/login';
-      }
+      delete api.defaults.headers.common['Authorization'];
     }
 
     return Promise.reject({
